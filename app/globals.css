@@ -24,3 +24,34 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.scroll-gradient::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+.scroll-gradient::-webkit-scrollbar-track {
+  background: transparent; /* fully transparent track */
+}
+
+.scroll-gradient::-webkit-scrollbar-thumb {
+  border-radius: 28px;
+  background: linear-gradient(
+    135deg,
+    rgba(49, 158, 216, 0.9) 0%,
+    rgba(30, 58, 138, 0.95) 100%
+  );
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.2s ease;
+}
+
+.scroll-gradient::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(49, 158, 216, 1) 0%,
+    rgba(30, 58, 138, 1) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}

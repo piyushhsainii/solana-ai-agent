@@ -4,7 +4,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { convertToModelMessages, ModelMessage, streamText } from "ai";
 import { systemPrompt } from "./system_prompt";
-
+import { solanaTools } from "./tools";
 const PROVIDER = process.env.LLM_PROVIDER || "openai"; // "openai" | "gemini"
 
 const openai = createOpenAI({
@@ -29,6 +29,7 @@ export const LLM = (messages: any) => {
     model: model,
     system: systemPrompt,
     messages: convertToModelMessages(messages),
+    tools: solanaTools,
 
     onError: (error) => {
       console.error("Error during streaming:", error);

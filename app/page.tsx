@@ -119,16 +119,19 @@ const Header = () => {
 };
 
 import ReactMarkdown from "react-markdown";
+import MessageComponent from "./components/message";
 
 function ChatBubble({
   message,
   isUser,
+  index,
 }: {
   message: {
     message: UIMessage<unknown, UIDataTypes, UITools>;
     role: "user" | "assistant" | "system";
   };
   isUser: boolean;
+  index: number;
 }) {
   return (
     <motion.div
@@ -136,7 +139,7 @@ function ChatBubble({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
       whileHover={{ scale: 1.02, y: -2 }}
-      className={`max-w-2xl p-6 relative overflow-hidden shadow-xl ${
+      className={`max-w-2xl px-6 py-3 relative overflow-hidden shadow-xl ${
         isUser ? "ml-12" : "mr-12"
       }`}
       style={{
@@ -229,7 +232,7 @@ function ChatBubble({
       />
 
       <div className="relative z-10">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-1">
           <span
             className={`text-xs font-bold tracking-wide ${
               isUser ? "text-white/90" : "text-gray-700"
@@ -254,19 +257,374 @@ function ChatBubble({
           }`}
         >
           {isUser ? (
+            // 🧍 USER MESSAGE
             <p className="m-0">
               {message.message.parts
-                .filter((data) => data.type == "text")
+                .filter((data) => data.type === "text")
                 .map((dataa) => dataa.text)
-                .join()}
+                .join(" ")}
             </p>
           ) : (
-            <ReactMarkdown>
+            // 🤖 AI AGENT MESSAGE
+            <div className="flex flex-col gap-3">
+              {/* 1️⃣ Render AI normal text parts */}
+              <ReactMarkdown>
+                {message.message.parts
+                  .filter((data) => data.type === "text")
+                  .map((dataa) => dataa.text)
+                  .join(" ")}
+              </ReactMarkdown>
+
+              {/* 2️⃣ Render Tool Outputs */}
               {message.message.parts
-                .filter((data) => data.type == "text")
-                .map((dataa) => dataa.text)
-                .join()}
-            </ReactMarkdown>
+                .filter(
+                  (part) =>
+                    part.type?.startsWith("tool-") &&
+                    // @ts-ignore
+                    part.state === "output-available" &&
+                    // @ts-ignore
+                    part.output
+                )
+                .map((part, i) => {
+                  const toolName = part.type.replace("tool-", "");
+                  // @ts-ignore
+                  const output = part.output;
+
+                  return (
+                    <div
+                      key={i}
+                      className="p-4 border border-blue-200 bg-blue-50/70 rounded-xl backdrop-blur-sm shadow-sm"
+                    >
+                      {/* <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-blue-800">
+                          🚀 Tool Invoked:
+                        </span>
+                        <code className="text-black font-medium bg-gray-500/50 rounded-full text-xs px-3 py-1">
+                          {toolName}
+                        </code>
+                      </div> */}
+
+                      {toolName === "get_wallet_balance" && (
+                        <div className="text-sm text-gray-800 space-y-2">
+                          <p className="font-semibold text-blue-800">
+                            💰 Wallet Balances
+                          </p>
+                          <ul className="list-disc ml-5 space-y-1">
+                            {Object.entries(output.balances || {}).map(
+                              ([token, value]) => (
+                                <li key={token}>
+                                  {token}:{" "}
+                                  <span className="font-medium text-gray-900">
+                                    {value}
+                                  </span>
+                                </li>
+                              )
+                            )}
+                          </ul>
+                        </div>
+                      )}
+
+                      {toolName === "get_best_swap_price" && (
+                        <div className="text-sm text-gray-800">
+                          <p className="font-semibold text-blue-800 mb-1">
+                            🔄 Best Swap Route
+                          </p>
+                          <div className="flex flex-col gap-1 bg-white/70 border border-blue-100 rounded-xl p-3 shadow-sm">
+                            <p>
+                              Pair:{" "}
+                              <span className="font-medium text-gray-900">
+                                {output.pair}
+                              </span>
+                            </p>
+                            <p>
+                              Route:{" "}
+                              <span className="font-medium text-blue-700">
+                                {output.route}
+                              </span>
+                            </p>
+                            <p>
+                              Best Price:{" "}
+                              <span className="font-semibold text-gray-900">
+                                {output.bestPrice}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {toolName === "send_tokens" && (
+                        <div className="text-sm text-gray-800 bg-green-50 border border-green-200 p-3 rounded-xl">
+                          <p className="font-semibold text-green-700 mb-1">
+                            📤 Token Sent
+                          </p>
+                          <p>
+                            {output.amount} {output.token} →{" "}
+                            <span className="font-mono text-gray-900">
+                              {output.toAddress}
+                            </span>
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Tx Signature:{" "}
+                            {output.signature || "Simulated (devnet)"}
+                          </p>
+                        </div>
+                      )}
+
+                      {toolName === "get_recent_transactions" && (
+                        <div className="text-sm">
+                          <p className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                            <span className="text-lg">🧾</span>
+                            Recent Transactions
+                          </p>
+                          <ul
+                            className="divide-y divide-gray-200/50 rounded-[20px] overflow-hidden shadow-xl relative"
+                            style={{
+                              background:
+                                "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
+                              backdropFilter: "blur(20px) saturate(180%)",
+                              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                            }}
+                          >
+                            {/* Dynamic border - stronger in center, faded at corners */}
+                            <div
+                              className="absolute inset-0 pointer-events-none"
+                              style={{
+                                borderRadius: "20px",
+                                padding: "2px",
+                                background:
+                                  "linear-gradient(135deg, rgba(156, 163, 175, 0.2) 0%, rgba(156, 163, 175, 0.5) 50%, rgba(156, 163, 175, 0.2) 100%)",
+                                WebkitMask:
+                                  "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+                                WebkitMaskComposite: "xor",
+                                maskComposite: "exclude",
+                              }}
+                            />
+
+                            {/* Corner gradients */}
+                            <div
+                              className="absolute top-0 left-0 w-20 h-20 pointer-events-none opacity-40"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at top left, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
+                                borderTopLeftRadius: "20px",
+                              }}
+                            />
+                            <div
+                              className="absolute top-0 right-0 w-20 h-20 pointer-events-none opacity-40"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at top right, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
+                                borderTopRightRadius: "20px",
+                              }}
+                            />
+                            <div
+                              className="absolute bottom-0 left-0 w-20 h-20 pointer-events-none opacity-30"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at bottom left, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
+                                borderBottomLeftRadius: "20px",
+                              }}
+                            />
+                            <div
+                              className="absolute bottom-0 right-0 w-20 h-20 pointer-events-none opacity-30"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at bottom right, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
+                                borderBottomRightRadius: "20px",
+                              }}
+                            />
+
+                            {/* Glass shimmer */}
+                            <div
+                              className="absolute inset-0 pointer-events-none"
+                              style={{
+                                background:
+                                  "linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, transparent 50%, rgba(255, 255, 255, 0.2) 100%)",
+                              }}
+                            />
+
+                            {/* Top highlight */}
+                            <div
+                              className="absolute top-0 left-6 right-6 h-px opacity-60"
+                              style={{
+                                background:
+                                  "linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent)",
+                              }}
+                            />
+
+                            {(output.transactions || []).map(
+                              (tx: any, i: number) => (
+                                <li
+                                  key={i}
+                                  className="p-4 hover:bg-white/50 transition-colors duration-200 relative z-10"
+                                >
+                                  <p className="font-semibold text-gray-900 mb-1">
+                                    Type: {tx.type}
+                                  </p>
+                                  <p className="text-xs text-gray-600 mb-0.5">
+                                    Amount:{" "}
+                                    <span className="font-medium">
+                                      {tx.amount}
+                                    </span>
+                                  </p>
+                                  <p className="text-xs text-gray-500 font-mono truncate">
+                                    Signature: {tx.signature}
+                                  </p>
+                                </li>
+                              )
+                            )}
+                          </ul>
+                        </div>
+                      )}
+
+                      {toolName === "get_portfolio_summary" && (
+                        <div className="text-sm">
+                          <p className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                            <span className="text-lg">📊</span>
+                            Portfolio Summary
+                          </p>
+                          <div
+                            className="rounded-[20px] p-5 shadow-xl relative overflow-hidden"
+                            style={{
+                              background:
+                                "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
+                              backdropFilter: "blur(20px) saturate(180%)",
+                              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                            }}
+                          >
+                            {/* Dynamic border - stronger in center, faded at corners */}
+                            <div
+                              className="absolute inset-0 pointer-events-none"
+                              style={{
+                                borderRadius: "20px",
+                                padding: "2px",
+                                background:
+                                  "linear-gradient(135deg, rgba(156, 163, 175, 0.2) 0%, rgba(156, 163, 175, 0.5) 50%, rgba(156, 163, 175, 0.2) 100%)",
+                                WebkitMask:
+                                  "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+                                WebkitMaskComposite: "xor",
+                                maskComposite: "exclude",
+                              }}
+                            />
+
+                            {/* Corner gradients */}
+                            <div
+                              className="absolute top-0 left-0 w-20 h-20 pointer-events-none opacity-40"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at top left, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
+                                borderTopLeftRadius: "20px",
+                              }}
+                            />
+                            <div
+                              className="absolute top-0 right-0 w-20 h-20 pointer-events-none opacity-40"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at top right, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
+                                borderTopRightRadius: "20px",
+                              }}
+                            />
+                            <div
+                              className="absolute bottom-0 left-0 w-20 h-20 pointer-events-none opacity-30"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at bottom left, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
+                                borderBottomLeftRadius: "20px",
+                              }}
+                            />
+                            <div
+                              className="absolute bottom-0 right-0 w-20 h-20 pointer-events-none opacity-30"
+                              style={{
+                                background:
+                                  "radial-gradient(circle at bottom right, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
+                                borderBottomRightRadius: "20px",
+                              }}
+                            />
+
+                            {/* Glass shimmer */}
+                            <div
+                              className="absolute inset-0 pointer-events-none"
+                              style={{
+                                background:
+                                  "linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, transparent 50%, rgba(255, 255, 255, 0.2) 100%)",
+                              }}
+                            />
+
+                            {/* Top highlight */}
+                            <div
+                              className="absolute top-0 left-6 right-6 h-px opacity-60"
+                              style={{
+                                background:
+                                  "linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent)",
+                              }}
+                            />
+
+                            <div className="relative z-10">
+                              <p className="text-gray-700 mb-2">
+                                Wallet:{" "}
+                                <span className="font-mono text-sm text-blue-700 font-semibold">
+                                  {output.walletAddress}
+                                </span>
+                              </p>
+                              <p className="font-bold text-xl text-blue-700 mb-4">
+                                Net Worth: ${output.netWorthUSD}
+                              </p>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm">
+                                  <thead>
+                                    <tr className="text-gray-600 border-b-2 border-gray-300/50">
+                                      <th className="pb-2 font-semibold">
+                                        Token
+                                      </th>
+                                      <th className="pb-2 font-semibold">
+                                        Balance
+                                      </th>
+                                      <th className="pb-2 font-semibold">
+                                        Value (USD)
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(output.tokens || []).map((token: any) => (
+                                      <tr
+                                        key={token.symbol}
+                                        className="border-b border-gray-200/50 hover:bg-white/40 transition-colors"
+                                      >
+                                        <td className="py-2 font-semibold text-gray-900">
+                                          {token.symbol}
+                                        </td>
+                                        <td className="py-2 text-gray-700">
+                                          {token.balance}
+                                        </td>
+                                        <td className="py-2 text-blue-700 font-medium">
+                                          ${token.valueUSD}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3️⃣ Generic fallback for unknown tools */}
+                      {![
+                        "get_wallet_balance",
+                        "get_best_swap_price",
+                        "send_tokens",
+                        "get_recent_transactions",
+                        "get_portfolio_summary",
+                      ].includes(toolName) && (
+                        <pre className="text-xs bg-gray-100 p-2 rounded-md overflow-x-auto">
+                          {JSON.stringify(output, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           )}
         </div>
       </div>
@@ -324,11 +682,6 @@ const ChatMessage = ({
                   .map((dataa) => dataa.text)
                   .join()}
               </p>
-              {/* {message.details && (
-                <div className="mt-2 p-2 bg-white/60 rounded border border-blue-100 text-xs font-mono text-gray-600">
-                  {message.details}
-                </div>
-              )} */}
             </div>
           </div>
         </div>
@@ -354,7 +707,7 @@ const ChatMessage = ({
       }}
       className={`flex ${isUser ? "justify-end" : "justify-start"} mb-4 px-4`}
     >
-      <ChatBubble isUser={isUser} message={message} />
+      <ChatBubble isUser={isUser} message={message} index={index} />
     </motion.div>
   );
 };
@@ -382,9 +735,12 @@ const ChatThread = ({
     >
       <div
         ref={scrollRef}
-        className="h-full overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-blue-700/50 scrollbar-track-transparent"
+        className="h-full scroll-gradient overflow-y-auto px-6 py-4 "
       >
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-5xl mx-auto flex flex-col gap-4">
+          {
+            <MessageComponent message="Welcome! I'm your Solana AI Agent. I can help you swap tokens, stake SOL, analyze your portfolio, and execute on-chain actions. What would you like to do?" />
+          }
           {chat_messages
             .map((message) => ({
               message: message,
@@ -394,13 +750,15 @@ const ChatThread = ({
               message.message.parts.filter((d) => d.type == "text")
             )
             .map((messageObj, index) => (
-              <ChatMessage
-                key={index}
-                message={messageObj}
-                role={messageObj.role}
-                index={index}
-                type={false}
-              />
+              <>
+                <ChatMessage
+                  key={index}
+                  message={messageObj}
+                  role={messageObj.role}
+                  index={index}
+                  type={false}
+                />
+              </>
             ))}
         </div>
       </div>
@@ -564,7 +922,7 @@ const PromptInput = ({ onSend }) => {
       initial={{ y: 100, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ type: "spring", damping: 15, stiffness: 200, delay: 0.4 }}
-      className="sticky bottom-0 bg-white/70 backdrop-blur-xl border-t border-gray-200 p-6"
+      className="sticky bottom-0  backdrop-blur-xl border-t border-gray-200 p-6"
     >
       {/* Decorative particles */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -595,8 +953,15 @@ const PromptInput = ({ onSend }) => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
+            style={{
+              borderRadius: "28px",
+              background:
+                "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+            }}
             placeholder="Ask Solana AI to swap, stake, analyze..."
-            className="w-full px-6 py-4 pr-32 bg-white/80 border border-gray-300 rounded-2xl text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-700/50 focus:bg-white transition-all resize-none"
+            className="w-full px-6 py-4 pr-32  border border-gray-300 rounded-2xl text-blue-900 font-semibold placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-700/50 focus:bg-white transition-all resize-none"
             rows={2}
           />
 
@@ -619,6 +984,13 @@ const PromptInput = ({ onSend }) => {
               whileHover={{
                 scale: 1.05,
                 boxShadow: "0 0 15px rgba(29, 78, 216, 0.5)",
+              }}
+              style={{
+                borderRadius: "28px",
+                background:
+                  "linear-gradient(135deg, rgba(49, 158, 216, 0.9) 0%, rgba(30, 58, 138, 0.95) 100%)",
+                backdropFilter: "blur(20px) saturate(180%)",
+                WebkitBackdropFilter: "blur(20px) saturate(180%)",
               }}
               whileTap={{ scale: 0.95 }}
               className="px-5 py-2.5 bg-gradient-to-r from-blue-700 to-blue-800 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl font-semibold transition-all flex items-center gap-2"
@@ -742,17 +1114,6 @@ export default function SolanaAIAgentDashboard() {
     loading: false,
   });
 
-  const addLog = (content, details = null) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        type: "log",
-        content,
-        details,
-        timestamp: new Date().toLocaleTimeString(),
-      },
-    ]);
-  };
   const { resumeStream, messages: chat_messages, sendMessage } = useChat();
 
   const handleSendMessage = async (content) => {
@@ -794,10 +1155,10 @@ export default function SolanaAIAgentDashboard() {
         loading: false,
       });
 
-      addLog(
-        "Transaction confirmed on-chain",
-        "Block: 284,592,103 | Slot: 328,472,194"
-      );
+      // addLog(
+      //   "Transaction confirmed on-chain",
+      //   "Block: 284,592,103 | Slot: 328,472,194"
+      // );
 
       setTimeout(() => {
         setMessages((prev) => [
@@ -816,19 +1177,19 @@ export default function SolanaAIAgentDashboard() {
   console.log(chat_messages);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-gray-50">
+    <div className="h-screen flex flex-col overflow-hidden bg-linear-to-tr  from-gray-50 via-gray-300 to-gray-50">
       <AnimatedBackground />
       <Header />
 
-      <div className="flex-1 flex mt-16 overflow-hidden">
+      <div className="flex-1 flex mt-16 overflow-hidden w-full max-w-[1300px] mx-auto ">
         <Sidebar
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
         />
 
         <div
-          className={`flex-1 flex flex-col transition-all duration-300 ${
-            sidebarOpen ? "ml-80" : "ml-0"
+          className={`flex-1 flex flex-col  transition-all duration-300 ${
+            sidebarOpen ? "ml-20" : "ml-0"
           }`}
         >
           <ChatThread chat_messages={chat_messages} />

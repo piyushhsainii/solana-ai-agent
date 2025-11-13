@@ -1,10 +1,16 @@
 import type { Metadata } from "next";
-import { Dosis, Geist, Geist_Mono, Roboto_Flex } from "next/font/google";
+import {
+  Dosis,
+  Geist,
+  Geist_Mono,
+  Quicksand,
+  Roboto_Flex,
+} from "next/font/google";
 import "./globals.css";
 
-const geistSans = Roboto_Flex({
+const geistSans = Quicksand({
   variable: "--font-geist-sans",
-  weight: ["200", "300", "400", "500", "600", "700", "800", "100", "900"],
+  weight: ["300", "400", "500", "600", "700"],
   subsets: ["latin"],
 });
 
