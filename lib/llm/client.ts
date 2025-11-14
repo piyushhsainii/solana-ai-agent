@@ -20,14 +20,14 @@ const model =
     ? openai("gpt-4o-mini") // lightweight, fast model
     : gemini("gemini-2.5-pro");
 
-export const LLM = (messages: any) => {
+export const LLM = (messages: any, walletAddress: string) => {
   if (!messages || messages.length === 0) {
     throw new Error("No messages provided to LLM()");
   }
 
   return streamText({
     model: model,
-    system: systemPrompt,
+    system: systemPrompt(walletAddress),
     messages: convertToModelMessages(messages),
     tools: solanaTools,
 

@@ -1,12 +1,9 @@
 import type { Metadata } from "next";
-import {
-  Dosis,
-  Geist,
-  Geist_Mono,
-  Quicksand,
-  Roboto_Flex,
-} from "next/font/google";
+import { Quicksand } from "next/font/google";
 import "./globals.css";
+import "@solana/wallet-adapter-react-ui/styles.css";
+
+import AppProvider from "@/components/AppProvider";
 
 const geistSans = Quicksand({
   variable: "--font-geist-sans",
@@ -26,7 +23,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.className}  antialiased`}>{children}</body>
+      <body className={`${geistSans.className}  antialiased`}>
+        <AppProvider>{children}</AppProvider>
+      </body>
     </html>
   );
 }

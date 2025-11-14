@@ -10,6 +10,8 @@ import {
   ChevronDown,
   Check,
   Loader2,
+  RotateCw,
+  Copy,
 } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
 import { UIDataTypes, UIMessage, UITools } from "ai";
@@ -97,7 +99,7 @@ const Header = () => {
         </motion.div>
 
         {/* Wallet Button */}
-        <motion.button
+        {/* <motion.button
           onClick={() => setIsConnected(!isConnected)}
           whileHover={{
             scale: 1.05,
@@ -112,7 +114,16 @@ const Header = () => {
         >
           <Wallet className="w-4 h-4" />
           {isConnected ? "Wallet Connected" : "Connect Wallet"}
-        </motion.button>
+        </motion.button> */}
+        <WalletMultiButton
+          style={{
+            borderRadius: "28px",
+            background:
+              "linear-gradient(135deg, rgba(49, 158, 216, 0.9) 0%, rgba(30, 58, 138, 0.95) 100%)",
+            backdropFilter: "blur(20px) saturate(180%)",
+            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          }}
+        />
       </div>
     </motion.header>
   );
@@ -120,11 +131,15 @@ const Header = () => {
 
 import ReactMarkdown from "react-markdown";
 import MessageComponent from "./components/message";
+import { Button } from "@/components/ui/button";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { useWallet, WalletContextState } from "@solana/wallet-adapter-react";
 
 function ChatBubble({
   message,
   isUser,
   index,
+  handleSendMessage,
 }: {
   message: {
     message: UIMessage<unknown, UIDataTypes, UITools>;
@@ -132,7 +147,12 @@ function ChatBubble({
   };
   isUser: boolean;
   index: number;
+  handleSendMessage: any;
 }) {
+  const reSendMessage = async (prompt: string) => {
+    await handleSendMessage(prompt);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
@@ -295,32 +315,52 @@ function ChatBubble({
                       key={i}
                       className="p-4 border border-blue-200 bg-blue-50/70 rounded-xl backdrop-blur-sm shadow-sm"
                     >
-                      {/* <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold text-blue-800">
-                          🚀 Tool Invoked:
-                        </span>
-                        <code className="text-black font-medium bg-gray-500/50 rounded-full text-xs px-3 py-1">
-                          {toolName}
-                        </code>
-                      </div> */}
+                      {toolName === "get_wallet_balance" && output && (
+                        <div className="text-sm text-gray-800">
+                          <p className="font-semibold mb-1">Wallet Balances:</p>
 
-                      {toolName === "get_wallet_balance" && (
-                        <div className="text-sm text-gray-800 space-y-2">
-                          <p className="font-semibold text-blue-800">
-                            💰 Wallet Balances
-                          </p>
-                          <ul className="list-disc ml-5 space-y-1">
-                            {Object.entries(output.balances || {}).map(
-                              ([token, value]) => (
-                                <li key={token}>
-                                  {token}:{" "}
-                                  <span className="font-medium text-gray-900">
-                                    {value}
-                                  </span>
-                                </li>
-                              )
+                          {/* Show SOL balance */}
+                          {output.balances?.SOL && (
+                            <p className="mb-2">
+                              SOL:{" "}
+                              <span className="font-medium">
+                                {output.balances.SOL}
+                              </span>
+                            </p>
+                          )}
+
+                          {/* Show SPL Tokens */}
+                          {Array.isArray(output.balances?.tokens) &&
+                            output.balances.tokens.length > 0 && (
+                              <div className="mt-2">
+                                <p className="font-semibold">SPL Tokens:</p>
+                                <ul className="list-disc ml-5">
+                                  {output.balances.tokens.map((token, i) => (
+                                    <li key={i}>
+                                      <span className="font-medium">
+                                        {token.symbol ?? token.mint.slice(0, 6)}
+                                        :
+                                      </span>{" "}
+                                      {token.balance}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
                             )}
-                          </ul>
+
+                          {/* Render ANY markdown coming from the tool */}
+                          {output.markdown && (
+                            <div className="mt-3 prose prose-sm max-w-none">
+                              <ReactMarkdown>{output.markdown}</ReactMarkdown>
+                            </div>
+                          )}
+
+                          {/* Handle errors gracefully */}
+                          {output.error && (
+                            <p className="text-red-500 mt-2">
+                              ⚠️ {output.error}
+                            </p>
+                          )}
                         </div>
                       )}
 
@@ -560,15 +600,15 @@ function ChatBubble({
                             />
 
                             <div className="relative z-10">
-                              <p className="text-gray-700 mb-2">
-                                Wallet:{" "}
-                                <span className="font-mono text-sm text-blue-700 font-semibold">
+                              <p className="mb-2 bg-gray-300 text-xs rounded-full px-2 ">
+                                Wallet:
+                                <span className="font-mono  text-sm text-black font-semibold">
                                   {output.walletAddress}
                                 </span>
                               </p>
-                              <p className="font-bold text-xl text-blue-700 mb-4">
+                              <Button className="font-bold text-base bg-green-700 text-white mb-4">
                                 Net Worth: ${output.netWorthUSD}
-                              </p>
+                              </Button>
                               <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm">
                                   <thead>
@@ -593,10 +633,10 @@ function ChatBubble({
                                         <td className="py-2 font-semibold text-gray-900">
                                           {token.symbol}
                                         </td>
-                                        <td className="py-2 text-gray-700">
+                                        <td className="py-2 text-gray-700 font-semibold">
                                           {token.balance}
                                         </td>
-                                        <td className="py-2 text-blue-700 font-medium">
+                                        <td className="py-2 text-green-700 font-semibold ">
                                           ${token.valueUSD}
                                         </td>
                                       </tr>
@@ -628,6 +668,42 @@ function ChatBubble({
           )}
         </div>
       </div>
+      {isUser && (
+        <div className="flex gap-2 justify-end mt-2">
+          <div>
+            {" "}
+            <RotateCw
+              color="white"
+              onClick={async () =>
+                reSendMessage(
+                  message.message.parts
+                    .filter((data) => data.type === "text")
+                    .map((dataa) => dataa.text)
+                    .join(" ")
+                )
+              }
+              size={19}
+              className="cursor-pointer hover:scale-110"
+            />{" "}
+          </div>
+          <div>
+            {" "}
+            <Copy
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  message.message.parts
+                    .filter((data) => data.type === "text")
+                    .map((dataa) => dataa.text)
+                    .join(" ")
+                );
+              }}
+              color={`${isUser ? "white" : "black"}`}
+              size={19}
+              className="cursor-pointer hover:scale-110"
+            />{" "}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -637,6 +713,7 @@ const ChatMessage = ({
   index,
   role,
   type = false,
+  handleSendMessage,
 }: {
   message: {
     message: UIMessage<unknown, UIDataTypes, UITools>;
@@ -645,6 +722,7 @@ const ChatMessage = ({
   index: number;
   role: "user" | "assistant" | "system";
   type: boolean;
+  handleSendMessage: any;
 }) => {
   const isUser = role === "user";
   const isLog = type;
@@ -707,7 +785,12 @@ const ChatMessage = ({
       }}
       className={`flex ${isUser ? "justify-end" : "justify-start"} mb-4 px-4`}
     >
-      <ChatBubble isUser={isUser} message={message} index={index} />
+      <ChatBubble
+        isUser={isUser}
+        message={message}
+        index={index}
+        handleSendMessage={handleSendMessage}
+      />
     </motion.div>
   );
 };
@@ -715,8 +798,10 @@ const ChatMessage = ({
 // Chat Thread Component
 const ChatThread = ({
   chat_messages,
+  handleSendMessage,
 }: {
   chat_messages: UIMessage<unknown, UIDataTypes, UITools>[];
+  handleSendMessage: any;
 }) => {
   const scrollRef = useRef(null);
 
@@ -747,18 +832,17 @@ const ChatThread = ({
               role: message.role,
             }))
             .filter((message) =>
-              message.message.parts.filter((d) => d.type == "text")
+              message?.message?.parts?.filter((d) => d.type == "text")
             )
             .map((messageObj, index) => (
-              <>
-                <ChatMessage
-                  key={index}
-                  message={messageObj}
-                  role={messageObj.role}
-                  index={index}
-                  type={false}
-                />
-              </>
+              <ChatMessage
+                key={index}
+                message={messageObj}
+                role={messageObj.role}
+                index={index}
+                type={false}
+                handleSendMessage={handleSendMessage}
+              />
             ))}
         </div>
       </div>
@@ -899,7 +983,13 @@ const Sidebar = ({ isOpen, onToggle }) => {
 };
 
 // Prompt Input Component
-const PromptInput = ({ onSend }) => {
+const PromptInput = ({
+  onSend,
+  wallet,
+}: {
+  onSend: any;
+  wallet: WalletContextState;
+}) => {
   const [input, setInput] = useState("");
   const [showActions, setShowActions] = useState(false);
 
@@ -1098,13 +1188,13 @@ const Footer = () => {
 
 // Main App Component
 export default function SolanaAIAgentDashboard() {
-  const [messages, setMessages] = useState([
-    {
-      role: "agent",
-      content:
-        "Welcome! I'm your Solana AI Agent. I can help you swap tokens, stake SOL, analyze your portfolio, and execute on-chain actions. What would you like to do?",
-    },
-  ]);
+  // const [messages, setMessages] = useState([
+  //   {
+  //     role: "agent",
+  //     content:
+  //       "Welcome! I'm your Solana AI Agent. I can help you swap tokens, stake SOL, analyze your portfolio, and execute on-chain actions. What would you like to do?",
+  //   },
+  // ]);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -1114,67 +1204,105 @@ export default function SolanaAIAgentDashboard() {
     loading: false,
   });
 
-  const { resumeStream, messages: chat_messages, sendMessage } = useChat();
+  const {
+    resumeStream,
+    messages: chat_messages,
+    sendMessage,
+    setMessages,
+    status,
+  } = useChat();
+  const wallet = useWallet();
 
-  const handleSendMessage = async (content) => {
+  const handleSendMessage = async (content: string) => {
     // Add user message
-    setMessages((prev) => [...prev, { role: "user", content }]);
+    // setMessages((prev) => [...prev, { role: "user", content }]);
+    let timeoutId;
+
+    switch (status) {
+      case "ready":
+        setAgentStatus({
+          show: true,
+          message: "Agent Ready...",
+          loading: false,
+        });
+        break;
+
+      case "submitted":
+        setAgentStatus({
+          show: true,
+          message: "Processing your request...",
+          loading: true,
+        });
+        break;
+
+      case "streaming":
+        setAgentStatus({
+          show: true,
+          message: "Generating response...",
+          loading: true,
+        });
+        break;
+
+      case "error":
+        // Show error first
+        setAgentStatus({
+          show: true,
+          message: "An error occurred. Please try again.",
+          loading: false,
+        });
+
+        // Hide after 3 seconds
+        timeoutId = setTimeout(() => {
+          setAgentStatus({
+            show: false,
+            message: "",
+            loading: false,
+          });
+        }, 3000);
+
+        break;
+      default:
+        // Treat unknown as idle
+        setAgentStatus({
+          show: false,
+          message: "",
+          loading: false,
+        });
+        break;
+    }
 
     // Show agent status
-    setAgentStatus({
-      show: true,
-      message: "Processing your request...",
-      loading: true,
-    });
 
     // Add initial log
     setTimeout(() => {
-      addLog("Initializing transaction...", "Connecting to Solana Devnet RPC");
+      // addLog("Initializing transaction...", "Connecting to Solana Devnet RPC");
     }, 500);
 
     // Add processing log
     setTimeout(() => {
-      addLog("Analyzing request parameters", "Parsing: " + content);
+      // addLog("Analyzing request parameters", "Parsing: " + content);
     }, 1500);
 
     // Add execution log
     setTimeout(() => {
-      addLog(
-        "Executing on-chain transaction",
-        "TX Hash: 5j7k8m9n0p1q2r3s4t5u6v7w8x9y0z"
-      );
-    }, 2500);
-    sendMessage({
-      text: content,
-    });
-    // Complete
-    setTimeout(() => {
-      setAgentStatus({
-        show: true,
-        message: "Transaction executed successfully ✅",
-        loading: false,
-      });
-
       // addLog(
-      //   "Transaction confirmed on-chain",
-      //   "Block: 284,592,103 | Slot: 328,472,194"
+      //   "Executing on-chain transaction",
+      //   "TX Hash: 5j7k8m9n0p1q2r3s4t5u6v7w8x9y0z"
       // );
-
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "agent",
-            content: `I've processed your request: "${content}". The transaction has been executed on Devnet. Would you like me to do anything else?`,
-            link: "https://solscan.io/tx/example",
-          },
-        ]);
-
-        setAgentStatus({ show: false, message: "", loading: false });
-      }, 1000);
-    }, 3500);
+    }, 2500);
+    sendMessage(
+      { text: content },
+      {
+        body: {
+          walletAddress: wallet.connected ? wallet.publicKey : null,
+        },
+        metadata: {
+          walletProvided: wallet.connected,
+        },
+      }
+    );
   };
-  console.log(chat_messages);
+  console.log(chat_messages[0]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-linear-to-tr  from-gray-50 via-gray-300 to-gray-50">
@@ -1192,8 +1320,11 @@ export default function SolanaAIAgentDashboard() {
             sidebarOpen ? "ml-20" : "ml-0"
           }`}
         >
-          <ChatThread chat_messages={chat_messages} />
-          <PromptInput onSend={handleSendMessage} />
+          <ChatThread
+            chat_messages={chat_messages}
+            handleSendMessage={handleSendMessage}
+          />
+          <PromptInput onSend={handleSendMessage} wallet={wallet} />
         </div>
       </div>
 

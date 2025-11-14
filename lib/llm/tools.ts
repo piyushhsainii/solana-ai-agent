@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { tool } from "ai";
+import { connection } from "../connection";
+import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 
 /**
  * 🪙 Fetch wallet balances
@@ -10,17 +12,67 @@ export const get_wallet_balance = tool({
   inputSchema: z.object({
     walletAddress: z
       .string()
-      .describe("The Solana wallet address to check balances for."),
+      .describe("The Solana wallet address to check balances for.")
+      .optional(),
   }),
+
   execute: async ({ walletAddress }) => {
-    console.log(`Fetching balances for wallet: ${walletAddress}`);
-    return {
-      walletAddress,
-      balances: {
-        SOL: "2.34",
-        USDC: "120.50",
-      },
-    };
+    console.log(`🔍 Fetching balances for wallet: ${walletAddress}`);
+    if (!walletAddress) {
+      return;
+    }
+    try {
+      // ✅ 1. Validate wallet address
+      let publicKey: PublicKey;
+      try {
+        publicKey = new PublicKey(walletAddress);
+      } catch {
+        throw new Error("Invalid Solana wallet address format.");
+      }
+
+      // ✅ 2. Fetch SOL balance
+      const solBalanceLamports = await connection.getBalance(publicKey);
+      const solBalance = solBalanceLamports / LAMPORTS_PER_SOL; // convert lamports → SOL
+
+      // ✅ 3. Fetch SPL token balances
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+        publicKey,
+        {
+          programId: new PublicKey(
+            "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          ),
+        }
+      );
+
+      const tokens = tokenAccounts.value.map((acc) => {
+        const info = acc.account.data.parsed.info;
+        const mint = info.mint;
+        const amount = info.tokenAmount.uiAmount || 0;
+        const decimals = info.tokenAmount.decimals;
+
+        return {
+          mint,
+          balance: amount,
+          decimals,
+        };
+      });
+
+      // ✅ 4. Return structured result
+      return {
+        walletAddress,
+        balances: {
+          SOL: solBalance.toFixed(4),
+          tokens,
+        },
+      };
+    } catch (err: any) {
+      console.error("❌ Error fetching wallet balances:", err);
+      return {
+        walletAddress,
+        error: err.message || "Failed to fetch wallet balances.",
+        balances: {},
+      };
+    }
   },
 });
 
