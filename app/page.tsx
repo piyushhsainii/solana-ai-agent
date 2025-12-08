@@ -134,6 +134,9 @@ import MessageComponent from "./components/message";
 import { Button } from "@/components/ui/button";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useWallet, WalletContextState } from "@solana/wallet-adapter-react";
+import { clusterApiUrl, Connection } from "@solana/web3.js";
+import { Transaction } from "@solana/web3.js";
+import { PerpTradeHandler } from "@/lib/perp-trader-handler";
 
 function ChatBubble({
   message,
@@ -153,6 +156,8 @@ function ChatBubble({
     await handleSendMessage(prompt);
   };
 
+  const wallet = useWallet();
+  const connection = new Connection(clusterApiUrl("devnet"));
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
@@ -309,7 +314,9 @@ function ChatBubble({
                   const toolName = part.type.replace("tool-", "");
                   // @ts-ignore
                   const output = part.output;
-
+                  console.log(output);
+                  // @ts-ignore
+                  const toolResult = part.output;
                   return (
                     <div
                       key={i}
@@ -317,48 +324,168 @@ function ChatBubble({
                     >
                       {toolName === "get_wallet_balance" && output && (
                         <div className="text-sm text-gray-800">
-                          <p className="font-semibold mb-1">Wallet Balances:</p>
+                          <p className="font-semibold mb-3 text-lg">
+                            💰 Wallet Balances
+                          </p>
 
                           {/* Show SOL balance */}
                           {output.balances?.SOL && (
-                            <p className="mb-2">
-                              SOL:{" "}
-                              <span className="font-medium">
-                                {output.balances.SOL}
-                              </span>
-                            </p>
+                            <div className="mb-4 p-3 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+                              <div className="flex items-center gap-2">
+                                <span className="text-2xl">◎</span>
+                                <div>
+                                  <p className="text-xs text-gray-600 uppercase">
+                                    Solana
+                                  </p>
+                                  <p className="font-bold text-lg">
+                                    {typeof output.balances.SOL === "object"
+                                      ? output.balances.SOL.balance
+                                      : output.balances.SOL}{" "}
+                                    SOL
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
                           )}
 
                           {/* Show SPL Tokens */}
                           {Array.isArray(output.balances?.tokens) &&
                             output.balances.tokens.length > 0 && (
-                              <div className="mt-2">
-                                <p className="font-semibold">SPL Tokens:</p>
-                                <ul className="list-disc ml-5">
+                              <div className="mt-4">
+                                <p className="font-semibold mb-3 flex items-center gap-2">
+                                  <span className="text-lg">🪙</span>
+                                  Top SPL Tokens
+                                  {output.totalTokens > 5 && (
+                                    <span className="text-xs text-gray-500">
+                                      (showing top 5 of {output.totalTokens})
+                                    </span>
+                                  )}
+                                </p>
+
+                                <div className="space-y-3">
                                   {output.balances.tokens.map((token, i) => (
-                                    <li key={i}>
-                                      <span className="font-medium">
-                                        {token.symbol ?? token.mint.slice(0, 6)}
-                                        :
-                                      </span>{" "}
-                                      {token.balance}
-                                    </li>
+                                    <div
+                                      key={token.mint || i}
+                                      className="p-3 bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
+                                    >
+                                      <div className="flex items-start gap-3">
+                                        {/* Token Image */}
+                                        {token.image ? (
+                                          <img
+                                            src={token.image}
+                                            alt={token.name || token.symbol}
+                                            className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                                            onError={(e) => {
+                                              e.currentTarget.src =
+                                                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Crect width='48' height='48' fill='%23e5e7eb'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-size='20' fill='%239ca3af'%3E?%3C/text%3E%3C/svg%3E";
+                                            }}
+                                          />
+                                        ) : (
+                                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center flex-shrink-0">
+                                            <span className="text-gray-500 font-bold">
+                                              {token.symbol?.charAt(0) || "?"}
+                                            </span>
+                                          </div>
+                                        )}
+
+                                        {/* Token Info */}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-baseline gap-2 mb-1">
+                                            <h3 className="font-semibold text-base truncate">
+                                              {token.name || "Unknown Token"}
+                                            </h3>
+                                            <span className="text-xs text-gray-500 font-mono">
+                                              {token.symbol || "???"}
+                                            </span>
+                                          </div>
+
+                                          {/* Balance */}
+                                          <p className="font-bold text-lg text-gray-900 mb-1">
+                                            {token.balance.toLocaleString(
+                                              undefined,
+                                              {
+                                                maximumFractionDigits:
+                                                  token.decimals || 6,
+                                              }
+                                            )}
+                                          </p>
+
+                                          {/* Description */}
+                                          {token.description && (
+                                            <p className="text-xs text-gray-600 line-clamp-2 mt-1">
+                                              {token.description}
+                                            </p>
+                                          )}
+
+                                          {/* Mint Address */}
+                                          <div className="mt-2 flex items-center gap-2">
+                                            <span className="text-xs text-gray-400">
+                                              Mint:
+                                            </span>
+                                            <code className="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded">
+                                              {token.mint.slice(0, 4)}...
+                                              {token.mint.slice(-4)}
+                                            </code>
+                                            <button
+                                              onClick={() => {
+                                                navigator.clipboard.writeText(
+                                                  token.mint
+                                                );
+                                              }}
+                                              className="text-xs text-blue-500 hover:text-blue-700"
+                                              title="Copy mint address"
+                                            >
+                                              📋
+                                            </button>
+                                          </div>
+
+                                          {/* Metadata URI */}
+                                          {token.uri && (
+                                            <a
+                                              href={token.uri}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-xs text-blue-500 hover:text-blue-700 mt-1 inline-block"
+                                            >
+                                              View Metadata →
+                                            </a>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
                                   ))}
-                                </ul>
+                                </div>
                               </div>
+                            )}
+
+                          {/* No tokens found */}
+                          {Array.isArray(output.balances?.tokens) &&
+                            output.balances.tokens.length === 0 && (
+                              <p className="text-gray-500 italic mt-3">
+                                No SPL tokens found in this wallet
+                              </p>
                             )}
 
                           {/* Render ANY markdown coming from the tool */}
                           {output.markdown && (
-                            <div className="mt-3 prose prose-sm max-w-none">
+                            <div className="mt-4 prose prose-sm max-w-none">
                               <ReactMarkdown>{output.markdown}</ReactMarkdown>
                             </div>
                           )}
 
                           {/* Handle errors gracefully */}
                           {output.error && (
-                            <p className="text-red-500 mt-2">
-                              ⚠️ {output.error}
+                            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                              <p className="text-red-700 text-sm">
+                                ⚠️ {output.error}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Success indicator */}
+                          {output.success && !output.error && (
+                            <p className="text-xs text-green-600 mt-3 flex items-center gap-1">
+                              <span>✓</span> Successfully fetched wallet data
                             </p>
                           )}
                         </div>
@@ -649,6 +776,13 @@ function ChatBubble({
                         </div>
                       )}
 
+                      {toolName === "open_perp_trade" && (
+                        <PerpTradeHandler
+                          toolName="open_perp_trade"
+                          toolResult={toolResult}
+                        />
+                      )}
+
                       {/* 3️⃣ Generic fallback for unknown tools */}
                       {![
                         "get_wallet_balance",
@@ -656,10 +790,14 @@ function ChatBubble({
                         "send_tokens",
                         "get_recent_transactions",
                         "get_portfolio_summary",
+                        "open_perp_trade",
                       ].includes(toolName) && (
-                        <pre className="text-xs bg-gray-100 p-2 rounded-md overflow-x-auto">
-                          {JSON.stringify(output, null, 2)}
-                        </pre>
+                        <ReactMarkdown>
+                          {message.message.parts
+                            .filter((data) => data.type === "text")
+                            .map((dataa) => dataa.text)
+                            .join(" ")}
+                        </ReactMarkdown>
                       )}
                     </div>
                   );
@@ -803,7 +941,7 @@ const ChatThread = ({
   chat_messages: UIMessage<unknown, UIDataTypes, UITools>[];
   handleSendMessage: any;
 }) => {
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
