@@ -12,7 +12,11 @@ export async function POST(req: NextRequest) {
     const chats: ModelMessage[] = messages;
 
     const result = LLM(chats, wallet);
-    console.log(result.textStream);
+    console.log(`Dynamic tool calls`, result.dynamicToolCalls);
+    console.log(`dynamicToolResults`, result.dynamicToolResults);
+    console.log(`reasoningText`, result.reasoningText);
+    console.log(`totalUsage`, result.totalUsage);
+    console.log(result.toUIMessageStreamResponse({ sendReasoning: true }));
     return result.toUIMessageStreamResponse({});
   } catch (error) {
     console.error(error);

@@ -1,121 +1,152 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Zap } from "lucide-react";
+import { Zap, RotateCw, Copy, User } from "lucide-react";
 
-const MessageComponent = ({ message }: { message: string }) => {
+interface MessageComponentProps {
+  message: string;
+  isUser?: boolean;
+}
+
+/**
+ * MessageComponent (Neobrutalism Edition)
+ *
+ * Design Characteristics:
+ * - High contrast (Black borders on white/colored backgrounds)
+ * - Hard shadows (No blur, solid offset)
+ * - Geometric shapes
+ * - Bold typography
+ * - Interactive "press" effect on hover
+ */
+const MessageComponent = ({
+  message,
+  isUser = false,
+}: MessageComponentProps) => {
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message);
+  };
+
+  const handleRetry = () => {
+    // Mock retry action
+    console.log("Retrying message:", message);
+  };
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
-      whileHover={{ scale: 1.02, y: -2 }}
-      className={`max-w-2xl p-6 relative overflow-hidden shadow-xl ${"mr-12"}`}
+      initial={{ opacity: 0, x: isUser ? 20 : -20, y: 20 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      transition={{
+        type: "spring",
+        stiffness: 200,
+        damping: 20,
+      }}
+      whileHover={{
+        x: isUser ? -4 : 4,
+        y: 4,
+        boxShadow: "0px 0px 0px 0px rgba(0,0,0,1)",
+      }}
+      className={`max-w-2xl w-full relative border-2 border-black p-6 
+        ${isUser ? "bg-blue-200 ml-auto" : "bg-white mr-auto"}
+      `}
       style={{
-        borderRadius: "28px",
-        background:
-          "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
-        backdropFilter: "blur(20px) saturate(180%)",
-        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+        // Hard, solid shadow (no blur)
+        boxShadow: "6px 6px 0px 0px rgba(0,0,0,1)",
+        borderRadius: "12px", // Slightly rounded, but distinct
       }}
     >
-      {/* Dynamic border - stronger in center, faded at corners */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          borderRadius: "28px",
-          padding: "2px",
-          background:
-            "linear-gradient(135deg, rgba(156, 163, 175, 0.2) 0%, rgba(156, 163, 175, 0.5) 50%, rgba(156, 163, 175, 0.2) 100%)",
-          WebkitMask:
-            "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-          WebkitMaskComposite: "xor",
-          maskComposite: "exclude",
-        }}
-      />
+      {/* Decorative "Screws" or corner accents common in brutalism */}
+      <div className="absolute top-3 left-3 w-2 h-2 bg-black rounded-full" />
+      <div className="absolute top-3 right-3 w-2 h-2 bg-black rounded-full" />
+      <div className="absolute bottom-3 left-3 w-2 h-2 bg-black rounded-full" />
+      <div className="absolute bottom-3 right-3 w-2 h-2 bg-black rounded-full" />
 
-      {/* Darker gradient overlays in corners */}
-      {/* Top-left corner */}
-      <div
-        className="absolute top-0 left-0 w-24 h-24 pointer-events-none opacity-40"
-        style={{
-          background:
-            "radial-gradient(circle at top left, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-          borderTopLeftRadius: "28px",
-        }}
-      />
-
-      {/* Top-right corner */}
-      <div
-        className="absolute top-0 right-0 w-24 h-24 pointer-events-none opacity-40"
-        style={{
-          background:
-            "radial-gradient(circle at top right, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-          borderTopRightRadius: "28px",
-        }}
-      />
-
-      {/* Bottom-left corner */}
-      <div
-        className="absolute bottom-0 left-0 w-24 h-24 pointer-events-none opacity-30"
-        style={{
-          background:
-            "radial-gradient(circle at bottom left, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-          borderBottomLeftRadius: "28px",
-        }}
-      />
-
-      {/* Bottom-right corner */}
-      <div
-        className="absolute bottom-0 right-0 w-24 h-24 pointer-events-none opacity-30"
-        style={{
-          background:
-            "radial-gradient(circle at bottom right, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-          borderBottomRightRadius: "28px",
-        }}
-      />
-
-      {/* Glass shimmer effect */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, transparent 50%, rgba(255, 255, 255, 0.2) 100%)",
-        }}
-      />
-
-      {/* Top highlight for glass effect */}
-      <div
-        className="absolute top-0 left-8 right-8 h-px opacity-60"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent)",
-        }}
-      />
-
-      <div className="relative z-10">
-        <div className="flex items-center gap-2 mb-3">
-          <span
-            className={`text-xs font-bold tracking-wide ${"text-gray-700"}`}
+      <div className="relative z-10 pl-2">
+        {/* Header Badge */}
+        <div
+          className={`flex items-center gap-3 mb-4 ${
+            isUser ? "flex-row-reverse" : ""
+          }`}
+        >
+          <div
+            className={`flex items-center gap-2 border-2 border-black px-3 py-1 rounded-md shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]
+            ${isUser ? "bg-white" : "bg-purple-400"}
+          `}
           >
-            {"AI Agent"}
-          </span>
-          <motion.div
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            <Zap className="w-3.5 h-3.5 text-blue-600" />
-          </motion.div>
+            <span className="text-xs font-black uppercase tracking-wider text-black">
+              {isUser ? "You" : "AI Agent"}
+            </span>
+            {isUser ? (
+              <User className="w-4 h-4 text-black" />
+            ) : (
+              <motion.div
+                animate={{ rotate: [0, 15, -15, 0] }}
+                transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 3 }}
+              >
+                <Zap className="w-4 h-4 text-black fill-yellow-300" />
+              </motion.div>
+            )}
+          </div>
+
+          {/* Timestamp decorative line */}
+          <div className="h-0.5 flex-grow bg-black opacity-20" />
         </div>
 
-        {/* Conditional rendering: Markdown for AI, plain text for User */}
+        {/* Content Area */}
         <div
-          className={`text-sm leading-relaxed prose prose-sm max-w-none ${"text-gray-800"}`}
+          className={`text-base font-medium leading-relaxed text-black font-sans ${
+            isUser ? "text-right" : ""
+          }`}
         >
           {message}
         </div>
+
+        {/* Action Buttons (User Only) */}
+        {isUser && (
+          <div className="flex gap-3 justify-end mt-6 pt-4 border-t-2 border-black/10">
+            <ActionBtn
+              onClick={handleRetry}
+              icon={<RotateCw size={18} />}
+              label="Retry"
+            />
+            <ActionBtn
+              onClick={handleCopy}
+              icon={<Copy size={18} />}
+              label="Copy"
+            />
+          </div>
+        )}
       </div>
     </motion.div>
   );
 };
+
+const ActionBtn = ({
+  onClick,
+  icon,
+  label,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label?: string;
+}) => (
+  <motion.button
+    whileTap={{
+      scale: 0.95,
+      x: 2,
+      y: 2,
+      boxShadow: "0px 0px 0px 0px rgba(0,0,0,1)",
+    }}
+    whileHover={{ x: -2, y: -2, boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
+    onClick={onClick}
+    className="group flex items-center gap-2 bg-white border-2 border-black px-3 py-2 
+                 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-yellow-300 transition-colors"
+  >
+    {icon}
+    {label && (
+      <span className="text-xs font-bold uppercase hidden sm:inline">
+        {label}
+      </span>
+    )}
+  </motion.button>
+);
 
 export default MessageComponent;

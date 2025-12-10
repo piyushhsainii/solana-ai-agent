@@ -23,7 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.className}  antialiased`}>
+      <body className={`${geistSans.className}  antialiased bg-yellow-50/50`}>
         <AppProvider>{children}</AppProvider>
       </body>
     </html>

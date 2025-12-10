@@ -9,12 +9,17 @@ import {
 import {
   BASE_PRECISION,
   BN,
+  BulkAccountLoader,
+  convertToNumber,
   DriftClient,
+  getUserAccountPublicKey,
+  initialize,
   MarketType,
   OrderType,
   PositionDirection,
   PRICE_PRECISION,
   QUOTE_PRECISION,
+  User,
   Wallet,
 } from "@drift-labs/sdk";
 import wallet from "../../my-keypair.json";
@@ -27,7 +32,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { MPL_TOKEN_METADATA_PROGRAM_ID } from "@metaplex-foundation/mpl-token-metadata";
-
+import bs58 from "bs58";
 export const runtime = "nodejs"; // better performance on Vercel
 
 function getMetadataPDA(mint: PublicKey): PublicKey {
@@ -862,6 +867,767 @@ export const manage_collateral = tool({
   },
 });
 
+export const get_drift_balance = tool({
+  name: "get_drift_balance",
+  description:
+    "Fetch user's Drift Protocol balance including deposits, borrows, PnL, and positions on devnet",
+  inputSchema: z.object({
+    walletAddress: z
+      .string()
+      .describe("Solana wallet address to query Drift balances"),
+  }),
+
+  execute: async ({ walletAddress }) => {
+    // Validate wallet address
+    if (!walletAddress) {
+      return {
+        success: false,
+        walletAddress: "",
+        error: "Wallet address is required",
+        driftData: null,
+      };
+    }
+
+    try {
+      // Use Drift devnet RPC
+      const rpcUrl = "https://api.devnet.solana.com";
+      const connection = new Connection(rpcUrl, "confirmed");
+
+      console.log("🔗 Connecting to Drift on devnet");
+      console.log("📍 Wallet address:", walletAddress);
+
+      const walletPubkey = new PublicKey(walletAddress);
+
+      // Initialize Drift SDK
+      const sdkConfig = initialize({ env: "devnet" });
+
+      // Create BulkAccountLoader for polling
+      const bulkAccountLoader = new BulkAccountLoader(
+        connection,
+        "confirmed",
+        1000 // polling frequency in ms
+      );
+
+      // Create a read-only DriftClient
+      const driftClient = new DriftClient({
+        connection,
+        wallet: {
+          publicKey: walletPubkey,
+          signTransaction: async () => {
+            throw new Error("Read-only wallet");
+          },
+          signAllTransactions: async () => {
+            throw new Error("Read-only wallet");
+          },
+        },
+        programID: new PublicKey(sdkConfig.DRIFT_PROGRAM_ID),
+        accountSubscription: {
+          type: "polling",
+          accountLoader: bulkAccountLoader,
+        },
+      });
+
+      await driftClient.subscribe();
+      console.log("✅ Drift client subscribed");
+
+      // Check if user has a Drift account before trying to get it
+      let userAccountPublicKey;
+      try {
+        userAccountPublicKey = await driftClient.getUserAccountPublicKey();
+        console.log("🔍 User account PDA:", userAccountPublicKey.toBase58());
+      } catch (err) {
+        console.log("ℹ️ No Drift account found for this wallet");
+        await driftClient.unsubscribe();
+
+        return {
+          success: true,
+          walletAddress,
+          error: null,
+          driftData: {
+            hasAccount: false,
+            message:
+              "No Drift account found for this wallet. Create an account on Drift Protocol to get started.",
+          },
+        };
+      }
+
+      // Check if the account actually exists on-chain
+      const accountInfo = await connection.getAccountInfo(userAccountPublicKey);
+      if (!accountInfo) {
+        console.log("ℹ️ Drift account PDA exists but not initialized");
+        await driftClient.unsubscribe();
+
+        return {
+          success: true,
+          walletAddress,
+          error: null,
+          driftData: {
+            hasAccount: false,
+            message:
+              "Drift account not initialized. Visit app.drift.trade to create your account.",
+          },
+        };
+      }
+
+      // Get user account
+      const user = new User({
+        driftClient: driftClient,
+        userAccountPublicKey: userAccountPublicKey,
+      });
+
+      await user.subscribe();
+      console.log("✅ User account subscribed");
+
+      // Check if user account data exists
+      const userAccount = user.getUserAccount();
+      if (!userAccount) {
+        await driftClient.unsubscribe();
+        await user.unsubscribe();
+
+        return {
+          success: true,
+          walletAddress,
+          error: null,
+          driftData: {
+            hasAccount: false,
+            message:
+              "Drift account exists but has no data. Try refreshing or check on app.drift.trade.",
+          },
+        };
+      }
+
+      // Get total collateral and leverage
+      const totalCollateral = user.getTotalCollateral();
+      const freeCollateral = user.getFreeCollateral();
+      const leverage = user.getLeverage();
+      const accountValue = user.getNetSpotMarketValue();
+      const unrealizedPnl = user.getUnrealizedPNL(true, undefined);
+      const unrealizedFundingPnl = user.getUnrealizedFundingPNL();
+
+      // Get spot positions (deposits/borrows)
+      const spotPositions = user.getActiveSpotPositions();
+      const spotPositionsData = spotPositions.map((position) => {
+        const marketIndex = position.marketIndex;
+        const market = driftClient.getSpotMarketAccount(marketIndex);
+        const tokenAmount = user.getTokenAmount(marketIndex);
+        const isDeposit = tokenAmount.gt(new BN(0));
+
+        return {
+          marketIndex,
+          marketSymbol: market?.name || `Market ${marketIndex}`,
+          amount: convertToNumber(tokenAmount, market?.decimals || 6),
+          type: isDeposit ? "deposit" : "borrow",
+          value: convertToNumber(
+            user.getSpotMarketAssetValue(marketIndex),
+            QUOTE_PRECISION
+          ),
+        };
+      });
+
+      // Get perp positions
+      const perpPositions = user.getActivePerpPositions();
+      const perpPositionsData = perpPositions.map((position) => {
+        const marketIndex = position.marketIndex;
+        const market = driftClient.getPerpMarketAccount(marketIndex);
+        const baseAssetAmount = position.baseAssetAmount;
+        const isLong = baseAssetAmount.gt(new BN(0));
+
+        return {
+          marketIndex,
+          marketSymbol: market?.name || `Market ${marketIndex}`,
+          side: isLong ? "long" : "short",
+          baseAmount: convertToNumber(baseAssetAmount.abs(), BASE_PRECISION),
+          entryPrice: convertToNumber(
+            position.quoteAssetAmount
+              .abs()
+              .mul(BASE_PRECISION)
+              .div(baseAssetAmount.abs()),
+            QUOTE_PRECISION
+          ),
+          unrealizedPnl: convertToNumber(
+            user.getUnrealizedPNL(true, marketIndex),
+            QUOTE_PRECISION
+          ),
+        };
+      });
+
+      // Get open orders
+      const openOrders = user.getOpenOrders();
+
+      // Unsubscribe
+      await user.unsubscribe();
+      await driftClient.unsubscribe();
+
+      return {
+        success: true,
+        walletAddress,
+        error: null,
+        driftData: {
+          hasAccount: true,
+          accountValue: convertToNumber(accountValue, QUOTE_PRECISION),
+          totalCollateral: convertToNumber(totalCollateral, QUOTE_PRECISION),
+          freeCollateral: convertToNumber(freeCollateral, QUOTE_PRECISION),
+          leverage: leverage / 10000, // Leverage is in basis points
+          unrealizedPnl: convertToNumber(unrealizedPnl, QUOTE_PRECISION),
+          unrealizedFundingPnl: convertToNumber(
+            unrealizedFundingPnl,
+            QUOTE_PRECISION
+          ),
+          spotPositions: spotPositionsData,
+          perpPositions: perpPositionsData,
+          openOrdersCount: openOrders.length,
+          authority: userAccount.authority.toBase58(),
+          subAccountId: userAccount.subAccountId,
+        },
+      };
+    } catch (err: any) {
+      console.error("❌ Error fetching Drift balance:", err);
+
+      // Categorize errors for better user experience
+      let errorMessage = "Failed to fetch Drift balances";
+      let errorType = "unknown";
+
+      if (err.message?.includes("DriftClient has no user")) {
+        errorMessage =
+          "No Drift account found for this wallet. Create an account at app.drift.trade to get started.";
+        errorType = "no_account";
+      } else if (err.message?.includes("Invalid public key")) {
+        errorMessage = "Invalid wallet address format";
+        errorType = "invalid_address";
+      } else if (
+        err.message?.includes("429") ||
+        err.message?.includes("rate limit")
+      ) {
+        errorMessage = "RPC rate limit reached. Please try again in a moment.";
+        errorType = "rate_limit";
+      } else if (err.message?.includes("timeout")) {
+        errorMessage =
+          "Request timed out. Please check your connection and try again.";
+        errorType = "timeout";
+      } else if (err.message?.includes("Network request failed")) {
+        errorMessage = "Network error. Please check your internet connection.";
+        errorType = "network";
+      } else {
+        errorMessage = err.message || "Failed to fetch Drift balances";
+        errorType = "unknown";
+      }
+
+      return {
+        success: false,
+        walletAddress,
+        error: errorMessage,
+        errorType,
+        driftData: null,
+      };
+    }
+  },
+});
+
+export const create_drift_account_tool = tool({
+  name: "create_drift_account",
+  description:
+    "Create a new Drift Protocol account for the user. This prepares a transaction that the user needs to approve in their wallet. Optionally include an initial deposit.",
+  inputSchema: z.object({
+    walletAddress: z.string().describe("User's Solana wallet address"),
+    depositAmount: z
+      .number()
+      .optional()
+      .describe(
+        "Optional initial USDC deposit amount (e.g., 100 for $100 USDC)"
+      ),
+    subAccountId: z
+      .number()
+      .default(0)
+      .describe("Sub-account ID (default is 0 for main account)"),
+  }),
+
+  execute: async ({ walletAddress, depositAmount, subAccountId = 0 }) => {
+    if (!walletAddress) {
+      return {
+        success: false,
+        error: "Wallet address is required",
+        requiresApproval: false,
+      };
+    }
+
+    try {
+      const rpcUrl =
+        process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
+      const connection = new Connection(rpcUrl, "confirmed");
+
+      const WalletKeypair = Keypair.fromSecretKey(new Uint8Array(wallet));
+      const DriftWallet = new Wallet(WalletKeypair);
+
+      console.log("🔗 Preparing Drift account creation");
+      console.log("📍 Wallet:", walletAddress);
+      console.log("💰 Deposit amount:", depositAmount || "None");
+
+      // Initialize Drift SDK
+      const sdkConfig = initialize({ env: "devnet" });
+      const bulkAccountLoader = new BulkAccountLoader(
+        connection,
+        "confirmed",
+        1000
+      );
+
+      // Create read-only wallet for building transaction
+      const dummyWallet = {
+        publicKey: new PublicKey(walletAddress),
+        signTransaction: async () => {
+          throw new Error("Read-only");
+        },
+        signAllTransactions: async () => {
+          throw new Error("Read-only");
+        },
+      };
+
+      const driftClient = new DriftClient({
+        connection,
+        wallet: dummyWallet,
+        programID: new PublicKey(sdkConfig.DRIFT_PROGRAM_ID),
+        accountSubscription: {
+          type: "polling",
+          accountLoader: bulkAccountLoader,
+        },
+      });
+
+      await driftClient.subscribe();
+
+      // Check if account already exists
+      try {
+        const userAccountPublicKey = await driftClient.getUserAccountPublicKey(
+          subAccountId
+        );
+        const accountInfo = await connection.getAccountInfo(
+          userAccountPublicKey
+        );
+
+        if (accountInfo) {
+          await driftClient.unsubscribe();
+          return {
+            success: false,
+            error:
+              "You already have a Drift account! Use 'check my drift balance' to view it.",
+            requiresApproval: false,
+            accountExists: true,
+            accountAddress: userAccountPublicKey.toBase58(),
+          };
+        }
+      } catch (err) {
+        console.log("✅ No existing account, proceeding with creation");
+      }
+
+      // Check SOL balance for fees
+      const solBalance = await connection.getBalance(
+        new PublicKey(walletAddress)
+      );
+      const minSolRequired = 0.01 * LAMPORTS_PER_SOL; // 0.01 SOL for fees
+
+      if (solBalance < minSolRequired) {
+        await driftClient.unsubscribe();
+        return {
+          success: false,
+          error: `Insufficient SOL for transaction fees. You need at least 0.01 SOL, but have ${(
+            solBalance / LAMPORTS_PER_SOL
+          ).toFixed(4)} SOL. Please add SOL to your wallet first.`,
+          requiresApproval: false,
+          errorType: "insufficient_sol",
+        };
+      }
+
+      // Build transaction
+      const transaction = new Transaction();
+
+      // Add initialize user account instruction
+      const [initUserAccountIx] = await driftClient.getInitializeUserAccountIxs(
+        subAccountId
+      );
+      transaction.add(...initUserAccountIx);
+
+      let depositDetails = null;
+
+      // Add deposit instruction if specified
+      if (depositAmount && depositAmount > 0) {
+        const marketIndex = 0; // USDC
+        const market = driftClient.getSpotMarketAccount(marketIndex);
+
+        if (!market) {
+          await driftClient.unsubscribe();
+          return {
+            success: false,
+            error: "USDC market not found on Drift",
+            requiresApproval: false,
+          };
+        }
+
+        // Convert deposit amount to proper precision
+        const depositAmountBN = new BN(
+          Math.floor(depositAmount * Math.pow(10, market.decimals))
+        );
+
+        // Get user's USDC token account
+        const userTokenAccount = await getAssociatedTokenAddress(
+          market.mint,
+          new PublicKey(walletAddress)
+        );
+
+        // Check if token account exists
+        const tokenAccountInfo = await connection.getAccountInfo(
+          userTokenAccount
+        );
+        if (!tokenAccountInfo) {
+          await driftClient.unsubscribe();
+          return {
+            success: false,
+            error: `No USDC token account found. Please ensure you have USDC in your wallet. You can get devnet USDC from a faucet.`,
+            requiresApproval: false,
+            errorType: "no_usdc_account",
+            suggestion: "Get devnet USDC from: https://faucet.circle.com/",
+          };
+        }
+
+        // Check token balance
+        const tokenAccount = await connection.getTokenAccountBalance(
+          userTokenAccount
+        );
+        const currentBalance =
+          parseFloat(tokenAccount.value.amount) / Math.pow(10, market.decimals);
+
+        if (currentBalance < depositAmount) {
+          await driftClient.unsubscribe();
+          return {
+            success: false,
+            error: `Insufficient USDC balance. You have ${currentBalance.toFixed(
+              2
+            )} USDC but tried to deposit ${depositAmount} USDC.`,
+            requiresApproval: false,
+            errorType: "insufficient_usdc",
+            currentBalance: currentBalance,
+            requestedAmount: depositAmount,
+          };
+        }
+
+        // Create deposit instruction
+        const depositIx = await driftClient.getDepositInstruction(
+          depositAmountBN,
+          marketIndex,
+          userTokenAccount
+        );
+        transaction.add(depositIx);
+
+        depositDetails = {
+          amount: depositAmount,
+          token: "USDC",
+          marketIndex: marketIndex,
+        };
+      }
+
+      // Get recent blockhash
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+
+      await driftClient.unsubscribe();
+
+      // Serialize transaction for client
+      const serializedTx = transaction.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      });
+
+      const txBase64 = Buffer.from(serializedTx).toString("base64");
+
+      return {
+        success: true,
+        message: depositAmount
+          ? `Transaction ready! This will create your Drift account and deposit ${depositAmount} USDC.`
+          : "Transaction ready! This will create your Drift account.",
+        requiresApproval: true,
+        transaction: txBase64,
+        depositDetails,
+        estimatedFees: "~0.001 SOL",
+        instructions: [
+          "1. Review the transaction details above",
+          "2. Approve the transaction in your wallet when prompted",
+          "3. Wait for confirmation (usually 5-10 seconds)",
+          depositAmount
+            ? "4. Your account will be created and funded with USDC"
+            : "4. Your account will be created and ready to use",
+        ],
+      };
+    } catch (err: any) {
+      console.error("❌ Error preparing account creation:", err);
+
+      let errorMessage = "Failed to prepare account creation";
+      let errorType = "unknown";
+
+      if (err.message?.includes("Invalid public key")) {
+        errorMessage = "Invalid wallet address format";
+        errorType = "invalid_address";
+      } else if (err.message?.includes("insufficient")) {
+        errorMessage = "Insufficient funds for this operation";
+        errorType = "insufficient_funds";
+      } else {
+        errorMessage = err.message || "Failed to prepare account creation";
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        errorType,
+        requiresApproval: false,
+      };
+    }
+  },
+});
+
+const MARKET_MAP: Record<string, number> = {
+  USDC: 0,
+  SOL: 1,
+  BTC: 2,
+  ETH: 3,
+  // Add more markets as needed
+};
+
+export const drift_deposit = tool({
+  name: "drift_deposit",
+  description:
+    "Deposit crypto assets into a Drift Protocol account on Solana devnet. The agent should call this when the user wants to deposit funds into their Drift trading account. Supports USDC, SOL, BTC, ETH and other Drift-supported tokens.",
+
+  inputSchema: z.object({
+    token: z
+      .string()
+      .describe("Token symbol to deposit (e.g., 'USDC', 'SOL', 'BTC', 'ETH')"),
+    amount: z
+      .number()
+      .positive()
+      .describe("Amount of tokens to deposit (in token units, not lamports)"),
+    walletAddress: z
+      .string()
+      .describe("User's Solana wallet public key (base58 string)"),
+  }),
+
+  execute: async ({ token, amount, walletAddress }) => {
+    let driftClient: DriftClient | null = null;
+
+    try {
+      // Validate wallet address
+      let userPubkey: PublicKey;
+      try {
+        userPubkey = new PublicKey(walletAddress);
+      } catch (error) {
+        return {
+          success: false,
+          error: "Invalid wallet address format",
+          details: "Please provide a valid Solana public key",
+        };
+      }
+
+      // Get market index
+      const marketIndex = MARKET_MAP[token.toUpperCase()];
+      if (marketIndex === undefined) {
+        return {
+          success: false,
+          error: `Unsupported token: ${token}`,
+          details: `Supported tokens: ${Object.keys(MARKET_MAP).join(", ")}`,
+        };
+      }
+
+      // Setup connection to devnet
+      const connection = new Connection(
+        "https://api.devnet.solana.com",
+        "confirmed"
+      );
+      // @ts-ignore
+      const WalletKeypair = Keypair.fromSecretKey(new Uint8Array(wallet));
+      const DriftWallet = new Wallet(WalletKeypair);
+
+      if (!WalletKeypair) {
+        return {
+          success: false,
+          error: "Unable to load wallet keypair",
+          details: "Wallet authentication failed",
+        };
+      }
+
+      const Wallet_ = new Wallet(WalletKeypair);
+
+      // Initialize Drift client
+      driftClient = new DriftClient({
+        connection,
+        wallet: Wallet_,
+        env: "devnet",
+      });
+      await driftClient.subscribe();
+
+      // Check if user account exists
+      const userAccountPubkey = await getUserAccountPublicKey(
+        driftClient.program.programId,
+        userPubkey,
+        0 // subAccountId
+      );
+
+      let userAccountExists = false;
+      try {
+        const userAccountInfo = await connection.getAccountInfo(
+          userAccountPubkey
+        );
+        userAccountExists = userAccountInfo !== null;
+      } catch (error) {
+        userAccountExists = false;
+      }
+
+      // Get spot market info
+      const spotMarket = driftClient.getSpotMarketAccount(marketIndex);
+      if (!spotMarket) {
+        return {
+          success: false,
+          requiresSignature: false,
+          error: `Spot market for ${token} not found`,
+          details: `Market index ${marketIndex} is not available`,
+        };
+      }
+
+      // Get user's token account
+      const userTokenAccount = await getAssociatedTokenAddress(
+        spotMarket.mint,
+        userPubkey,
+        false,
+        TOKEN_PROGRAM_ID
+      );
+
+      // Check if token account exists and has balance
+      let tokenAccountExists = false;
+      try {
+        const tokenAccountInfo = await connection.getTokenAccountBalance(
+          userTokenAccount
+        );
+        tokenAccountExists = true;
+
+        const decimals = tokenAccountInfo.value.decimals;
+        const balanceAmount =
+          parseFloat(tokenAccountInfo.value.amount) / Math.pow(10, decimals);
+
+        if (balanceAmount < amount) {
+          return {
+            success: false,
+            requiresSignature: false,
+            error: "Insufficient token balance",
+            details: `You have ${balanceAmount} ${token} but trying to deposit ${amount} ${token}`,
+            amount,
+            token,
+            marketIndex,
+          };
+        }
+      } catch (error) {
+        return {
+          success: false,
+          requiresSignature: false,
+          error: "Token account not found",
+          details: `You don't have a ${token} token account. Please ensure you have ${token} in your wallet first.`,
+          amount,
+          token,
+          marketIndex,
+        };
+      }
+
+      // Build the transaction
+      const transaction = new Transaction();
+
+      // Get recent blockhash
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("confirmed");
+      transaction.recentBlockhash = blockhash;
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
+      transaction.feePayer = userPubkey;
+
+      // Add initialize user instruction if account doesn't exist
+      if (!userAccountExists) {
+        console.log(
+          "User account does not exist. Adding initialization instruction..."
+        );
+        const [initIx] = await driftClient.getInitializeUserAccountIxs(
+          0, // subAccountId
+          "Main Account"
+        );
+        transaction.add(...initIx);
+      }
+
+      // Convert amount to BN with proper decimals
+      const decimals = marketIndex === 0 ? 6 : 9;
+      const amountBN = new BN(amount * Math.pow(10, decimals));
+
+      // Add deposit instruction
+      const depositIx = await driftClient.getDepositInstruction(
+        amountBN,
+        marketIndex,
+        userTokenAccount
+      );
+      transaction.add(depositIx);
+
+      // Serialize transaction to base58
+      const serializedTransaction = transaction.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      });
+      const transactionBase58 = bs58.encode(serializedTransaction);
+
+      console.log(`✅ Transaction prepared for ${amount} ${token} deposit`);
+
+      return {
+        success: true,
+        requiresSignature: true,
+        transaction: transactionBase58,
+        amount,
+        token,
+        marketIndex,
+        userAccountExists,
+        needsInitialization: !userAccountExists,
+        details: userAccountExists
+          ? `Transaction ready to deposit ${amount} ${token}. Please sign with your wallet.`
+          : `Transaction ready to initialize your Drift account and deposit ${amount} ${token}. Please sign with your wallet.`,
+        instructions: {
+          message: "Please sign this transaction with your Solana wallet",
+          steps: [
+            !userAccountExists
+              ? "Initialize Drift account (first time only)"
+              : null,
+            `Deposit ${amount} ${token} to Drift`,
+          ].filter(Boolean),
+        },
+      };
+    } catch (error: any) {
+      console.error("Transaction preparation error:", error);
+
+      let errorMessage = error.message || "Unknown error occurred";
+      let errorDetails = "";
+
+      if (error.logs) {
+        errorDetails = `Error logs: ${error.logs.join(" | ")}`;
+      }
+
+      return {
+        success: false,
+        requiresSignature: false,
+        error: errorMessage,
+        details: errorDetails || errorMessage,
+        amount,
+        token,
+        marketIndex: MARKET_MAP[token.toUpperCase()],
+      };
+    } finally {
+      // Cleanup
+      if (driftClient) {
+        try {
+          await driftClient.unsubscribe();
+        } catch (e) {
+          console.error("Error unsubscribing:", e);
+        }
+      }
+    }
+  },
+});
+
 export const solanaTools = {
   get_wallet_balance,
   send_tokens,
@@ -869,4 +1635,7 @@ export const solanaTools = {
   get_recent_transactions,
   get_portfolio_summary,
   open_perp_trade,
+  get_drift_balance,
+  create_drift_account_tool,
+  drift_deposit,
 };

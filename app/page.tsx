@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, JSX } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -12,131 +12,23 @@ import {
   Loader2,
   RotateCw,
   Copy,
+  Layers,
 } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
 import { UIDataTypes, UIMessage, UITools } from "ai";
 
-// Animated Background
-const AnimatedBackground = () => (
-  <div className="fixed inset-0 -z-10 overflow-hidden bg-gray-50">
-    {/* Floating Blobs */}
-    <motion.div
-      className="absolute top-20 left-20 w-96 h-96 bg-blue-700/5 rounded-full blur-3xl"
-      animate={{
-        x: [0, 100, 0],
-        y: [0, -50, 0],
-        scale: [1, 1.2, 1],
-      }}
-      transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
-    />
-    <motion.div
-      className="absolute bottom-20 right-20 w-96 h-96 bg-blue-700/5 rounded-full blur-3xl"
-      animate={{
-        x: [0, -100, 0],
-        y: [0, 50, 0],
-        scale: [1, 1.3, 1],
-      }}
-      transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
-    />
-  </div>
-);
-
 // Header Component
-const Header = () => {
-  const [isConnected, setIsConnected] = useState(false);
-
-  return (
-    <motion.header
-      initial={{ y: -100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ type: "spring", damping: 15, stiffness: 200 }}
-      className="fixed top-0 left-0 right-0 z-50 bg-white/70 backdrop-blur-xl border-b border-gray-200"
-    >
-      <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-blue-700/30 to-transparent" />
-
-      <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        {/* Logo Section */}
-        <motion.div
-          className="flex items-center gap-3"
-          whileHover={{ scale: 1.02 }}
-          transition={{ type: "spring", stiffness: 400 }}
-        >
-          <div className="relative">
-            <motion.div
-              className="w-10 h-10 bg-gradient-to-br from-blue-700 to-blue-900 rounded-lg flex items-center justify-center"
-              animate={{ rotate: [0, 5, -5, 0] }}
-              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <Zap className="w-6 h-6 text-white" />
-            </motion.div>
-            <motion.div
-              className="absolute inset-0 bg-blue-700/30 rounded-lg blur-md"
-              animate={{ opacity: [0.3, 0.6, 0.3] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Solana AI Agent</h1>
-            <p className="text-xs text-gray-600">
-              Intelligent Trading Assistant
-            </p>
-          </div>
-        </motion.div>
-
-        {/* Status Indicator */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100/80 rounded-full border border-gray-200"
-        >
-          <motion.div
-            className="w-2 h-2 rounded-full bg-green-500"
-            animate={{ scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
-          <span className="text-sm text-gray-700">Connected to Devnet</span>
-        </motion.div>
-
-        {/* Wallet Button */}
-        {/* <motion.button
-          onClick={() => setIsConnected(!isConnected)}
-          whileHover={{
-            scale: 1.05,
-            boxShadow: "0 0 20px rgba(29, 78, 216, 0.5)",
-          }}
-          whileTap={{ scale: 0.95 }}
-          className={`px-6 py-2.5 rounded-xl font-semibold transition-all flex items-center gap-2 ${
-            isConnected
-              ? "bg-gradient-to-r from-green-600 to-green-700 text-white"
-              : "bg-gradient-to-r from-blue-700 to-blue-800 text-white"
-          }`}
-        >
-          <Wallet className="w-4 h-4" />
-          {isConnected ? "Wallet Connected" : "Connect Wallet"}
-        </motion.button> */}
-        <WalletMultiButton
-          style={{
-            borderRadius: "28px",
-            background:
-              "linear-gradient(135deg, rgba(49, 158, 216, 0.9) 0%, rgba(30, 58, 138, 0.95) 100%)",
-            backdropFilter: "blur(20px) saturate(180%)",
-            WebkitBackdropFilter: "blur(20px) saturate(180%)",
-          }}
-        />
-      </div>
-    </motion.header>
-  );
-};
 
 import ReactMarkdown from "react-markdown";
 import MessageComponent from "./components/message";
 import { Button } from "@/components/ui/button";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { useWallet, WalletContextState } from "@solana/wallet-adapter-react";
-import { clusterApiUrl, Connection } from "@solana/web3.js";
-import { Transaction } from "@solana/web3.js";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { PerpTradeHandler } from "@/lib/perp-trader-handler";
+import { GetDriftBalance } from "@/lib/get-drift-balance";
+import CreateDriftAccount from "@/lib/create-drift-account";
+import PromptInput from "@/lib/prompt-input";
+import { Header } from "@/lib/header";
+import Sidebar from "@/lib/sidebar";
 
 function ChatBubble({
   message,
@@ -156,134 +48,62 @@ function ChatBubble({
     await handleSendMessage(prompt);
   };
 
-  const wallet = useWallet();
-  const connection = new Connection(clusterApiUrl("devnet"));
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      whileHover={{ scale: 1.02, y: -2 }}
-      className={`max-w-2xl px-6 py-3 relative overflow-hidden shadow-xl ${
-        isUser ? "ml-12" : "mr-12"
+      whileHover={{
+        scale: 1.01,
+        y: -2,
+        boxShadow: "8px 8px 0px 0px rgba(0,0,0,1)",
+      }}
+      className={`max-w-2xl px-6 py-6 relative overflow-hidden border-2 border-black rounded-xl ${
+        isUser ? "ml-12 bg-blue-300" : "mr-12 bg-white"
       }`}
       style={{
-        borderRadius: "28px",
-        background: isUser
-          ? "linear-gradient(135deg, rgba(49, 158, 216, 0.9) 0%, rgba(30, 58, 138, 0.95) 100%)"
-          : "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
-        backdropFilter: "blur(20px) saturate(180%)",
-        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+        boxShadow: "6px 6px 0px 0px rgba(0,0,0,1)",
       }}
     >
-      {/* Dynamic border - stronger in center, faded at corners */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          borderRadius: "28px",
-          padding: "2px",
-          background: isUser
-            ? "linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.3) 50%, rgba(255, 255, 255, 0.1) 100%)"
-            : "linear-gradient(135deg, rgba(156, 163, 175, 0.2) 0%, rgba(156, 163, 175, 0.5) 50%, rgba(156, 163, 175, 0.2) 100%)",
-          WebkitMask:
-            "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-          WebkitMaskComposite: "xor",
-          maskComposite: "exclude",
-        }}
-      />
-
-      {/* Darker gradient overlays in corners */}
-      {/* Top-left corner */}
-      <div
-        className="absolute top-0 left-0 w-24 h-24 pointer-events-none opacity-40"
-        style={{
-          background: isUser
-            ? "radial-gradient(circle at top left, rgba(0, 0, 0, 0.3) 0%, transparent 70%)"
-            : "radial-gradient(circle at top left, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-          borderTopLeftRadius: "28px",
-        }}
-      />
-
-      {/* Top-right corner */}
-      <div
-        className="absolute top-0 right-0 w-24 h-24 pointer-events-none opacity-40"
-        style={{
-          background: isUser
-            ? "radial-gradient(circle at top right, rgba(0, 0, 0, 0.3) 0%, transparent 70%)"
-            : "radial-gradient(circle at top right, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-          borderTopRightRadius: "28px",
-        }}
-      />
-
-      {/* Bottom-left corner */}
-      <div
-        className="absolute bottom-0 left-0 w-24 h-24 pointer-events-none opacity-30"
-        style={{
-          background: isUser
-            ? "radial-gradient(circle at bottom left, rgba(0, 0, 0, 0.25) 0%, transparent 70%)"
-            : "radial-gradient(circle at bottom left, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-          borderBottomLeftRadius: "28px",
-        }}
-      />
-
-      {/* Bottom-right corner */}
-      <div
-        className="absolute bottom-0 right-0 w-24 h-24 pointer-events-none opacity-30"
-        style={{
-          background: isUser
-            ? "radial-gradient(circle at bottom right, rgba(0, 0, 0, 0.25) 0%, transparent 70%)"
-            : "radial-gradient(circle at bottom right, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-          borderBottomRightRadius: "28px",
-        }}
-      />
-
-      {/* Glass shimmer effect */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: isUser
-            ? "linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, transparent 50%, rgba(255, 255, 255, 0.08) 100%)"
-            : "linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, transparent 50%, rgba(255, 255, 255, 0.2) 100%)",
-        }}
-      />
-
-      {/* Top highlight for glass effect */}
-      <div
-        className="absolute top-0 left-8 right-8 h-px opacity-60"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent)",
-        }}
-      />
+      {/* Decorative 'Screws' for industrial feel */}
+      <div className="absolute top-2 left-2 w-1.5 h-1.5 bg-black rounded-full opacity-50" />
+      <div className="absolute top-2 right-2 w-1.5 h-1.5 bg-black rounded-full opacity-50" />
+      <div className="absolute bottom-2 left-2 w-1.5 h-1.5 bg-black rounded-full opacity-50" />
+      <div className="absolute bottom-2 right-2 w-1.5 h-1.5 bg-black rounded-full opacity-50" />
 
       <div className="relative z-10">
-        <div className="flex items-center gap-2 mb-1">
-          <span
-            className={`text-xs font-bold tracking-wide ${
-              isUser ? "text-white/90" : "text-gray-700"
-            }`}
+        <div
+          className={`flex items-center gap-2 mb-3 pb-2 border-b-2 border-black/10 ${
+            isUser ? "flex-row-reverse" : ""
+          }`}
+        >
+          <div
+            className={`
+            px-2 py-0.5 border-2 border-black rounded text-xs font-black uppercase tracking-wide shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]
+            ${isUser ? "bg-white text-black" : "bg-yellow-300 text-black"}
+          `}
           >
             {isUser ? "You" : "AI Agent"}
-          </span>
+          </div>
           {!isUser && (
             <motion.div
-              animate={{ opacity: [0.5, 1, 0.5] }}
+              animate={{ rotate: [0, 10, -10, 0] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              <Zap className="w-3.5 h-3.5 text-blue-600" />
+              <Zap className="w-4 h-4 text-black fill-current" />
             </motion.div>
           )}
         </div>
 
         {/* Conditional rendering: Markdown for AI, plain text for User */}
         <div
-          className={`text-sm leading-relaxed prose prose-sm max-w-none ${
-            isUser ? "text-white prose-invert" : "text-gray-800"
+          className={`text-sm leading-relaxed prose prose-sm max-w-none font-medium ${
+            isUser ? "text-black text-right" : "text-black"
           }`}
         >
           {isUser ? (
             // 🧍 USER MESSAGE
-            <p className="m-0">
+            <p className="m-0 text-base font-bold">
               {message.message.parts
                 .filter((data) => data.type === "text")
                 .map((dataa) => dataa.text)
@@ -291,9 +111,27 @@ function ChatBubble({
             </p>
           ) : (
             // 🤖 AI AGENT MESSAGE
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-4">
               {/* 1️⃣ Render AI normal text parts */}
-              <ReactMarkdown>
+              <ReactMarkdown
+                components={{
+                  p: ({ node, ...props }) => (
+                    <p className="mb-2 text-black font-medium" {...props} />
+                  ),
+                  strong: ({ node, ...props }) => (
+                    <span
+                      className="font-black bg-yellow-200 px-1 border border-black rounded-sm"
+                      {...props}
+                    />
+                  ),
+                  code: ({ node, ...props }) => (
+                    <code
+                      className="bg-gray-200 text-red-600 px-1 rounded font-bold"
+                      {...props}
+                    />
+                  ),
+                }}
+              >
                 {message.message.parts
                   .filter((data) => data.type === "text")
                   .map((dataa) => dataa.text)
@@ -314,30 +152,29 @@ function ChatBubble({
                   const toolName = part.type.replace("tool-", "");
                   // @ts-ignore
                   const output = part.output;
-                  console.log(output);
                   // @ts-ignore
                   const toolResult = part.output;
                   return (
                     <div
                       key={i}
-                      className="p-4 border border-blue-200 bg-blue-50/70 rounded-xl backdrop-blur-sm shadow-sm"
+                      className="p-4 border-2 border-black bg-blue-50 rounded-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
                     >
                       {toolName === "get_wallet_balance" && output && (
-                        <div className="text-sm text-gray-800">
-                          <p className="font-semibold mb-3 text-lg">
+                        <div className="text-sm text-gray-900">
+                          <p className="font-black mb-3 text-lg border-b-2 border-black pb-1 inline-block">
                             💰 Wallet Balances
                           </p>
 
                           {/* Show SOL balance */}
                           {output.balances?.SOL && (
-                            <div className="mb-4 p-3 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+                            <div className="mb-4 p-3 bg-white border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[-1px] transition-transform">
                               <div className="flex items-center gap-2">
-                                <span className="text-2xl">◎</span>
+                                <span className="text-2xl font-black">◎</span>
                                 <div>
-                                  <p className="text-xs text-gray-600 uppercase">
+                                  <p className="text-xs text-gray-500 uppercase font-bold">
                                     Solana
                                   </p>
-                                  <p className="font-bold text-lg">
+                                  <p className="font-black text-xl">
                                     {typeof output.balances.SOL === "object"
                                       ? output.balances.SOL.balance
                                       : output.balances.SOL}{" "}
@@ -352,108 +189,90 @@ function ChatBubble({
                           {Array.isArray(output.balances?.tokens) &&
                             output.balances.tokens.length > 0 && (
                               <div className="mt-4">
-                                <p className="font-semibold mb-3 flex items-center gap-2">
+                                <p className="font-bold mb-3 flex items-center gap-2">
                                   <span className="text-lg">🪙</span>
                                   Top SPL Tokens
                                   {output.totalTokens > 5 && (
-                                    <span className="text-xs text-gray-500">
-                                      (showing top 5 of {output.totalTokens})
+                                    <span className="text-xs text-gray-500 font-normal">
+                                      (top 5 of {output.totalTokens})
                                     </span>
                                   )}
                                 </p>
 
                                 <div className="space-y-3">
-                                  {output.balances.tokens.map((token, i) => (
-                                    <div
-                                      key={token.mint || i}
-                                      className="p-3 bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
-                                    >
-                                      <div className="flex items-start gap-3">
-                                        {/* Token Image */}
-                                        {token.image ? (
-                                          <img
-                                            src={token.image}
-                                            alt={token.name || token.symbol}
-                                            className="w-12 h-12 rounded-full object-cover flex-shrink-0"
-                                            onError={(e) => {
-                                              e.currentTarget.src =
-                                                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Crect width='48' height='48' fill='%23e5e7eb'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-size='20' fill='%239ca3af'%3E?%3C/text%3E%3C/svg%3E";
-                                            }}
-                                          />
-                                        ) : (
-                                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center flex-shrink-0">
-                                            <span className="text-gray-500 font-bold">
-                                              {token.symbol?.charAt(0) || "?"}
-                                            </span>
-                                          </div>
-                                        )}
-
-                                        {/* Token Info */}
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-baseline gap-2 mb-1">
-                                            <h3 className="font-semibold text-base truncate">
-                                              {token.name || "Unknown Token"}
-                                            </h3>
-                                            <span className="text-xs text-gray-500 font-mono">
-                                              {token.symbol || "???"}
-                                            </span>
-                                          </div>
-
-                                          {/* Balance */}
-                                          <p className="font-bold text-lg text-gray-900 mb-1">
-                                            {token.balance.toLocaleString(
-                                              undefined,
-                                              {
-                                                maximumFractionDigits:
-                                                  token.decimals || 6,
-                                              }
-                                            )}
-                                          </p>
-
-                                          {/* Description */}
-                                          {token.description && (
-                                            <p className="text-xs text-gray-600 line-clamp-2 mt-1">
-                                              {token.description}
-                                            </p>
-                                          )}
-
-                                          {/* Mint Address */}
-                                          <div className="mt-2 flex items-center gap-2">
-                                            <span className="text-xs text-gray-400">
-                                              Mint:
-                                            </span>
-                                            <code className="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded">
-                                              {token.mint.slice(0, 4)}...
-                                              {token.mint.slice(-4)}
-                                            </code>
-                                            <button
-                                              onClick={() => {
-                                                navigator.clipboard.writeText(
-                                                  token.mint
-                                                );
+                                  {output.balances.tokens.map(
+                                    (token: any, i: number) => (
+                                      <div
+                                        key={token.mint || i}
+                                        className="p-3 bg-white rounded-lg border-2 border-black hover:bg-yellow-50 transition-colors"
+                                      >
+                                        <div className="flex items-start gap-3">
+                                          {/* Token Image */}
+                                          {token.image ? (
+                                            <img
+                                              src={token.image}
+                                              alt={token.name || token.symbol}
+                                              className="w-10 h-10 rounded-full object-cover flex-shrink-0 border-2 border-black"
+                                              onError={(e) => {
+                                                e.currentTarget.src =
+                                                  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Crect width='48' height='48' fill='%23e5e7eb'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-size='20' fill='%239ca3af'%3E?%3C/text%3E%3C/svg%3E";
                                               }}
-                                              className="text-xs text-blue-500 hover:text-blue-700"
-                                              title="Copy mint address"
-                                            >
-                                              📋
-                                            </button>
-                                          </div>
-
-                                          {/* Metadata URI */}
-                                          {token.uri && (
-                                            <a
-                                              href={token.uri}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-xs text-blue-500 hover:text-blue-700 mt-1 inline-block"
-                                            >
-                                              View Metadata →
-                                            </a>
+                                            />
+                                          ) : (
+                                            <div className="w-10 h-10 rounded-full bg-gray-200 border-2 border-black flex items-center justify-center flex-shrink-0">
+                                              <span className="text-black font-bold">
+                                                {token.symbol?.charAt(0) || "?"}
+                                              </span>
+                                            </div>
                                           )}
+
+                                          {/* Token Info */}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-baseline gap-2 mb-1">
+                                              <h3 className="font-black text-base truncate uppercase">
+                                                {token.name || "Unknown"}
+                                              </h3>
+                                              <span className="text-xs font-bold bg-black text-white px-1 rounded">
+                                                {token.symbol || "???"}
+                                              </span>
+                                            </div>
+
+                                            {/* Balance */}
+                                            <p className="font-bold text-lg text-black mb-1">
+                                              {token.balance.toLocaleString(
+                                                undefined,
+                                                {
+                                                  maximumFractionDigits:
+                                                    token.decimals || 6,
+                                                }
+                                              )}
+                                            </p>
+
+                                            {/* Mint Address */}
+                                            <div className="mt-2 flex items-center gap-2">
+                                              <span className="text-xs font-bold text-gray-500">
+                                                MINT:
+                                              </span>
+                                              <code className="text-xs font-mono font-bold text-black bg-gray-200 px-2 py-0.5 rounded border border-black">
+                                                {token.mint.slice(0, 4)}...
+                                                {token.mint.slice(-4)}
+                                              </code>
+                                              <button
+                                                onClick={() => {
+                                                  navigator.clipboard.writeText(
+                                                    token.mint
+                                                  );
+                                                }}
+                                                className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                                              >
+                                                COPY
+                                              </button>
+                                            </div>
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    )
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -461,22 +280,15 @@ function ChatBubble({
                           {/* No tokens found */}
                           {Array.isArray(output.balances?.tokens) &&
                             output.balances.tokens.length === 0 && (
-                              <p className="text-gray-500 italic mt-3">
-                                No SPL tokens found in this wallet
+                              <p className="text-gray-500 italic mt-3 font-bold">
+                                No SPL tokens found.
                               </p>
                             )}
 
-                          {/* Render ANY markdown coming from the tool */}
-                          {output.markdown && (
-                            <div className="mt-4 prose prose-sm max-w-none">
-                              <ReactMarkdown>{output.markdown}</ReactMarkdown>
-                            </div>
-                          )}
-
                           {/* Handle errors gracefully */}
                           {output.error && (
-                            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                              <p className="text-red-700 text-sm">
+                            <div className="mt-3 p-3 bg-red-100 border-2 border-black rounded-lg">
+                              <p className="text-red-900 font-bold text-sm">
                                 ⚠️ {output.error}
                               </p>
                             </div>
@@ -484,158 +296,88 @@ function ChatBubble({
 
                           {/* Success indicator */}
                           {output.success && !output.error && (
-                            <p className="text-xs text-green-600 mt-3 flex items-center gap-1">
-                              <span>✓</span> Successfully fetched wallet data
-                            </p>
+                            <div className="mt-3 inline-block px-2 py-1 bg-green-200 border-2 border-black rounded text-xs font-bold text-green-900">
+                              ✓ DATA SYNCED
+                            </div>
                           )}
                         </div>
                       )}
 
                       {toolName === "get_best_swap_price" && (
-                        <div className="text-sm text-gray-800">
-                          <p className="font-semibold text-blue-800 mb-1">
+                        <div className="text-sm text-black">
+                          <p className="font-black text-blue-800 mb-2 uppercase tracking-wide">
                             🔄 Best Swap Route
                           </p>
-                          <div className="flex flex-col gap-1 bg-white/70 border border-blue-100 rounded-xl p-3 shadow-sm">
-                            <p>
-                              Pair:{" "}
-                              <span className="font-medium text-gray-900">
+                          <div className="flex flex-col gap-2 bg-white border-2 border-black rounded-lg p-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                            <p className="flex justify-between border-b border-black/10 pb-1">
+                              <span className="text-gray-600 font-bold">
+                                Pair
+                              </span>
+                              <span className="font-black uppercase">
                                 {output.pair}
                               </span>
                             </p>
-                            <p>
-                              Route:{" "}
-                              <span className="font-medium text-blue-700">
+                            <p className="flex justify-between border-b border-black/10 pb-1">
+                              <span className="text-gray-600 font-bold">
+                                Route
+                              </span>
+                              <span className="font-bold text-blue-700">
                                 {output.route}
                               </span>
                             </p>
-                            <p>
-                              Best Price:{" "}
-                              <span className="font-semibold text-gray-900">
+                            <div className="flex justify-between pt-1">
+                              <span className="text-gray-600 font-bold">
+                                Best Price
+                              </span>
+                              <span className="font-black bg-yellow-200 px-1 border border-black rounded">
                                 {output.bestPrice}
                               </span>
-                            </p>
+                            </div>
                           </div>
                         </div>
                       )}
 
                       {toolName === "send_tokens" && (
-                        <div className="text-sm text-gray-800 bg-green-50 border border-green-200 p-3 rounded-xl">
-                          <p className="font-semibold text-green-700 mb-1">
+                        <div className="text-sm text-black bg-green-100 border-2 border-black p-3 rounded-lg">
+                          <p className="font-black text-green-900 mb-2 uppercase">
                             📤 Token Sent
                           </p>
-                          <p>
-                            {output.amount} {output.token} →{" "}
-                            <span className="font-mono text-gray-900">
-                              {output.toAddress}
-                            </span>
+                          <p className="font-bold text-lg">
+                            {output.amount} {output.token}{" "}
+                            <span className="text-gray-500">→</span>
                           </p>
-                          <p className="text-xs text-gray-600 mt-1">
-                            Tx Signature:{" "}
-                            {output.signature || "Simulated (devnet)"}
+                          <p className="font-mono bg-white border border-black p-1 rounded mt-1 text-xs break-all">
+                            {output.toAddress}
+                          </p>
+                          <p className="text-xs font-bold text-gray-600 mt-2">
+                            SIG: {output.signature || "Simulated (devnet)"}
                           </p>
                         </div>
                       )}
 
                       {toolName === "get_recent_transactions" && (
                         <div className="text-sm">
-                          <p className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                          <p className="font-black text-black mb-3 flex items-center gap-2 uppercase">
                             <span className="text-lg">🧾</span>
                             Recent Transactions
                           </p>
-                          <ul
-                            className="divide-y divide-gray-200/50 rounded-[20px] overflow-hidden shadow-xl relative"
-                            style={{
-                              background:
-                                "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
-                              backdropFilter: "blur(20px) saturate(180%)",
-                              WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                            }}
-                          >
-                            {/* Dynamic border - stronger in center, faded at corners */}
-                            <div
-                              className="absolute inset-0 pointer-events-none"
-                              style={{
-                                borderRadius: "20px",
-                                padding: "2px",
-                                background:
-                                  "linear-gradient(135deg, rgba(156, 163, 175, 0.2) 0%, rgba(156, 163, 175, 0.5) 50%, rgba(156, 163, 175, 0.2) 100%)",
-                                WebkitMask:
-                                  "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-                                WebkitMaskComposite: "xor",
-                                maskComposite: "exclude",
-                              }}
-                            />
-
-                            {/* Corner gradients */}
-                            <div
-                              className="absolute top-0 left-0 w-20 h-20 pointer-events-none opacity-40"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at top left, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-                                borderTopLeftRadius: "20px",
-                              }}
-                            />
-                            <div
-                              className="absolute top-0 right-0 w-20 h-20 pointer-events-none opacity-40"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at top right, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-                                borderTopRightRadius: "20px",
-                              }}
-                            />
-                            <div
-                              className="absolute bottom-0 left-0 w-20 h-20 pointer-events-none opacity-30"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at bottom left, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-                                borderBottomLeftRadius: "20px",
-                              }}
-                            />
-                            <div
-                              className="absolute bottom-0 right-0 w-20 h-20 pointer-events-none opacity-30"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at bottom right, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-                                borderBottomRightRadius: "20px",
-                              }}
-                            />
-
-                            {/* Glass shimmer */}
-                            <div
-                              className="absolute inset-0 pointer-events-none"
-                              style={{
-                                background:
-                                  "linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, transparent 50%, rgba(255, 255, 255, 0.2) 100%)",
-                              }}
-                            />
-
-                            {/* Top highlight */}
-                            <div
-                              className="absolute top-0 left-6 right-6 h-px opacity-60"
-                              style={{
-                                background:
-                                  "linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent)",
-                              }}
-                            />
-
+                          <ul className="rounded-lg overflow-hidden border-2 border-black bg-white">
                             {(output.transactions || []).map(
                               (tx: any, i: number) => (
                                 <li
                                   key={i}
-                                  className="p-4 hover:bg-white/50 transition-colors duration-200 relative z-10"
+                                  className="p-3 border-b-2 border-black last:border-b-0 hover:bg-gray-50 transition-colors"
                                 >
-                                  <p className="font-semibold text-gray-900 mb-1">
-                                    Type: {tx.type}
-                                  </p>
-                                  <p className="text-xs text-gray-600 mb-0.5">
-                                    Amount:{" "}
-                                    <span className="font-medium">
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="font-black bg-black text-white px-2 py-0.5 rounded text-xs uppercase">
+                                      {tx.type}
+                                    </span>
+                                    <span className="font-bold text-green-700">
                                       {tx.amount}
                                     </span>
-                                  </p>
+                                  </div>
                                   <p className="text-xs text-gray-500 font-mono truncate">
-                                    Signature: {tx.signature}
+                                    {tx.signature}
                                   </p>
                                 </li>
                               )
@@ -646,131 +388,60 @@ function ChatBubble({
 
                       {toolName === "get_portfolio_summary" && (
                         <div className="text-sm">
-                          <p className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                          <p className="font-black text-black mb-3 flex items-center gap-2 uppercase">
                             <span className="text-lg">📊</span>
                             Portfolio Summary
                           </p>
-                          <div
-                            className="rounded-[20px] p-5 shadow-xl relative overflow-hidden"
-                            style={{
-                              background:
-                                "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
-                              backdropFilter: "blur(20px) saturate(180%)",
-                              WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                            }}
-                          >
-                            {/* Dynamic border - stronger in center, faded at corners */}
-                            <div
-                              className="absolute inset-0 pointer-events-none"
-                              style={{
-                                borderRadius: "20px",
-                                padding: "2px",
-                                background:
-                                  "linear-gradient(135deg, rgba(156, 163, 175, 0.2) 0%, rgba(156, 163, 175, 0.5) 50%, rgba(156, 163, 175, 0.2) 100%)",
-                                WebkitMask:
-                                  "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-                                WebkitMaskComposite: "xor",
-                                maskComposite: "exclude",
-                              }}
-                            />
+                          <div className="rounded-lg p-4 border-2 border-black bg-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                            <p className="mb-3 bg-gray-200 border border-black text-xs rounded-md px-2 py-1 inline-flex flex-col">
+                              <span className="text-gray-500 font-bold uppercase text-[10px]">
+                                Wallet
+                              </span>
+                              <span className="font-mono font-bold">
+                                {output.walletAddress}
+                              </span>
+                            </p>
 
-                            {/* Corner gradients */}
-                            <div
-                              className="absolute top-0 left-0 w-20 h-20 pointer-events-none opacity-40"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at top left, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-                                borderTopLeftRadius: "20px",
-                              }}
-                            />
-                            <div
-                              className="absolute top-0 right-0 w-20 h-20 pointer-events-none opacity-40"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at top right, rgba(107, 114, 128, 0.15) 0%, transparent 70%)",
-                                borderTopRightRadius: "20px",
-                              }}
-                            />
-                            <div
-                              className="absolute bottom-0 left-0 w-20 h-20 pointer-events-none opacity-30"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at bottom left, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-                                borderBottomLeftRadius: "20px",
-                              }}
-                            />
-                            <div
-                              className="absolute bottom-0 right-0 w-20 h-20 pointer-events-none opacity-30"
-                              style={{
-                                background:
-                                  "radial-gradient(circle at bottom right, rgba(107, 114, 128, 0.12) 0%, transparent 70%)",
-                                borderBottomRightRadius: "20px",
-                              }}
-                            />
-
-                            {/* Glass shimmer */}
-                            <div
-                              className="absolute inset-0 pointer-events-none"
-                              style={{
-                                background:
-                                  "linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, transparent 50%, rgba(255, 255, 255, 0.2) 100%)",
-                              }}
-                            />
-
-                            {/* Top highlight */}
-                            <div
-                              className="absolute top-0 left-6 right-6 h-px opacity-60"
-                              style={{
-                                background:
-                                  "linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent)",
-                              }}
-                            />
-
-                            <div className="relative z-10">
-                              <p className="mb-2 bg-gray-300 text-xs rounded-full px-2 ">
-                                Wallet:
-                                <span className="font-mono  text-sm text-black font-semibold">
-                                  {output.walletAddress}
-                                </span>
-                              </p>
-                              <Button className="font-bold text-base bg-green-700 text-white mb-4">
+                            <div className="mb-4">
+                              <Button className="w-full bg-green-600 text-white font-black text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
                                 Net Worth: ${output.netWorthUSD}
                               </Button>
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm">
-                                  <thead>
-                                    <tr className="text-gray-600 border-b-2 border-gray-300/50">
-                                      <th className="pb-2 font-semibold">
-                                        Token
-                                      </th>
-                                      <th className="pb-2 font-semibold">
-                                        Balance
-                                      </th>
-                                      <th className="pb-2 font-semibold">
-                                        Value (USD)
-                                      </th>
+                            </div>
+
+                            <div className="overflow-x-auto border-2 border-black rounded-lg">
+                              <table className="w-full text-left text-sm bg-gray-50">
+                                <thead>
+                                  <tr className="bg-black text-white">
+                                    <th className="p-2 font-bold uppercase text-xs">
+                                      Token
+                                    </th>
+                                    <th className="p-2 font-bold uppercase text-xs">
+                                      Balance
+                                    </th>
+                                    <th className="p-2 font-bold uppercase text-xs">
+                                      Value
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(output.tokens || []).map((token: any) => (
+                                    <tr
+                                      key={token.symbol}
+                                      className="border-b border-black last:border-0 hover:bg-yellow-100 transition-colors"
+                                    >
+                                      <td className="p-2 font-bold text-black border-r border-black/10">
+                                        {token.symbol}
+                                      </td>
+                                      <td className="p-2 text-gray-800 font-medium border-r border-black/10">
+                                        {token.balance}
+                                      </td>
+                                      <td className="p-2 text-green-700 font-black">
+                                        ${token.valueUSD}
+                                      </td>
                                     </tr>
-                                  </thead>
-                                  <tbody>
-                                    {(output.tokens || []).map((token: any) => (
-                                      <tr
-                                        key={token.symbol}
-                                        className="border-b border-gray-200/50 hover:bg-white/40 transition-colors"
-                                      >
-                                        <td className="py-2 font-semibold text-gray-900">
-                                          {token.symbol}
-                                        </td>
-                                        <td className="py-2 text-gray-700 font-semibold">
-                                          {token.balance}
-                                        </td>
-                                        <td className="py-2 text-green-700 font-semibold ">
-                                          ${token.valueUSD}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
                           </div>
                         </div>
@@ -782,7 +453,12 @@ function ChatBubble({
                           toolResult={toolResult}
                         />
                       )}
-
+                      {toolName === "get_drift_balance" && output && (
+                        <GetDriftBalance output={output} />
+                      )}
+                      {toolName === "create_drift_account_tool" && output && (
+                        <CreateDriftAccount toolResult={output} />
+                      )}
                       {/* 3️⃣ Generic fallback for unknown tools */}
                       {![
                         "get_wallet_balance",
@@ -791,13 +467,13 @@ function ChatBubble({
                         "get_recent_transactions",
                         "get_portfolio_summary",
                         "open_perp_trade",
+                        "get_drift_balance",
+                        "create_drift_account_tool",
                       ].includes(toolName) && (
-                        <ReactMarkdown>
-                          {message.message.parts
-                            .filter((data) => data.type === "text")
-                            .map((dataa) => dataa.text)
-                            .join(" ")}
-                        </ReactMarkdown>
+                        <div className="prose prose-sm">
+                          {/* Simple fallback if not structured */}
+                          <pre>{JSON.stringify(output, null, 2)}</pre>
+                        </div>
                       )}
                     </div>
                   );
@@ -807,39 +483,36 @@ function ChatBubble({
         </div>
       </div>
       {isUser && (
-        <div className="flex gap-2 justify-end mt-2">
-          <div>
-            {" "}
-            <RotateCw
-              color="white"
-              onClick={async () =>
-                reSendMessage(
-                  message.message.parts
-                    .filter((data) => data.type === "text")
-                    .map((dataa) => dataa.text)
-                    .join(" ")
-                )
-              }
-              size={19}
-              className="cursor-pointer hover:scale-110"
-            />{" "}
-          </div>
-          <div>
-            {" "}
-            <Copy
-              onClick={() => {
-                navigator.clipboard.writeText(
-                  message.message.parts
-                    .filter((data) => data.type === "text")
-                    .map((dataa) => dataa.text)
-                    .join(" ")
-                );
-              }}
-              color={`${isUser ? "white" : "black"}`}
-              size={19}
-              className="cursor-pointer hover:scale-110"
-            />{" "}
-          </div>
+        <div className="flex gap-3 justify-end mt-4 pt-3 border-t-2 border-black/10">
+          <motion.div
+            whileHover={{ scale: 1.1, rotate: 90 }}
+            className="cursor-pointer bg-white border-2 border-black p-1.5 rounded shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+            onClick={async () =>
+              reSendMessage(
+                message.message.parts
+                  .filter((data) => data.type === "text")
+                  .map((dataa) => dataa.text)
+                  .join(" ")
+              )
+            }
+          >
+            <RotateCw className="text-black w-4 h-4" />
+          </motion.div>
+
+          <motion.div
+            whileHover={{ scale: 1.1, y: -2 }}
+            className="cursor-pointer bg-white border-2 border-black p-1.5 rounded shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+            onClick={() => {
+              navigator.clipboard.writeText(
+                message.message.parts
+                  .filter((data) => data.type === "text")
+                  .map((dataa) => dataa.text)
+                  .join(" ")
+              );
+            }}
+          >
+            <Copy className="text-black w-4 h-4" />
+          </motion.div>
         </div>
       )}
     </motion.div>
@@ -949,316 +622,65 @@ const ChatThread = ({
     }
   }, [chat_messages]);
 
+  // Process messages to extract tools used and text content
+  const processedMessages = chat_messages.flatMap((message, msgIndex) => {
+    const elements: JSX.Element[] = [];
+
+    // Extract tool usage from message parts
+    const toolsUsed = message.parts
+      .filter(
+        (part) => part.type.startsWith("tool-") || part.type === "dynamic-tool"
+      )
+      .map((part) => part.type);
+
+    // Check if message has text content
+    // const hasTextContent = message.parts.some((part) => part.type === "text");
+
+    // If assistant message and tools were used, add tool log
+    if (message.role === "assistant" && toolsUsed.length > 0) {
+      elements.push(
+        <div
+          key={`tool-${msgIndex}`}
+          className="text-sm text-gray-500 italic mb-2"
+        >
+          Tools used: {toolsUsed.join(", ")}
+        </div>
+      );
+    }
+
+    elements.push(
+      <ChatMessage
+        key={`msg-${msgIndex}`}
+        message={{ message, role: message.role }}
+        role={message.role}
+        index={msgIndex}
+        type={false}
+        handleSendMessage={handleSendMessage}
+      />
+    );
+    return elements;
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className="flex-1 overflow-hidden"
+      className="flex-1 overflow-hidden flex flex-col h-full bg-yellow-50/50"
     >
       <div
         ref={scrollRef}
-        className="h-full scroll-gradient overflow-y-auto px-6 py-4 "
+        className="h-full overflow-y-auto px-4 md:px-8 py-6 space-y-6 scroll-smooth"
       >
-        <div className="max-w-5xl mx-auto flex flex-col gap-4">
-          {
-            <MessageComponent message="Welcome! I'm your Solana AI Agent. I can help you swap tokens, stake SOL, analyze your portfolio, and execute on-chain actions. What would you like to do?" />
-          }
-          {chat_messages
-            .map((message) => ({
-              message: message,
-              role: message.role,
-            }))
-            .filter((message) =>
-              message?.message?.parts?.filter((d) => d.type == "text")
-            )
-            .map((messageObj, index) => (
-              <ChatMessage
-                key={index}
-                message={messageObj}
-                role={messageObj.role}
-                index={index}
-                type={false}
-                handleSendMessage={handleSendMessage}
-              />
-            ))}
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-// Sidebar Component
-const Sidebar = ({ isOpen, onToggle }) => {
-  const stats = [
-    { label: "SOL Balance", value: "24.56", icon: Wallet, trend: "+5.2%" },
-    {
-      label: "Total Value",
-      value: "$2,845",
-      icon: TrendingUp,
-      trend: "+12.4%",
-    },
-    { label: "Active Trades", value: "3", icon: Activity, trend: "Live" },
-  ];
-
-  const quickActions = ["Swap", "Stake", "Portfolio", "Analyze"];
-
-  return (
-    <>
-      {/* Toggle Button */}
-      <motion.button
-        onClick={onToggle}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        animate={{ left: isOpen ? "20rem" : "0.5rem" }}
-        className={` fixed  top-20 z-50 p-3 bg-blue-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-shadow  `}
-      >
-        <motion.div
-          animate={{ rotate: isOpen ? 180 : 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <ChevronDown className="w-5 h-5 -rotate-90 " />
-        </motion.div>
-      </motion.button>
-
-      {/* Sidebar Panel */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.aside
-            initial={{ x: -320, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -320, opacity: 0 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            className="fixed left-0 top-16 bottom-0 w-80 bg-white/70 backdrop-blur-md border-r border-gray-200 p-6 overflow-y-auto z-40"
-          >
-            {/* Balance Cards */}
-            <div className="space-y-4 mb-6">
-              <h3 className="text-sm font-semibold text-gray-600 mb-3">
-                Wallet Overview
-              </h3>
-              {stats.map((stat, index) => (
-                <motion.div
-                  key={stat.label}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 + index * 0.1 }}
-                  whileHover={{ scale: 1.03, y: -2 }}
-                  className="relative p-4 rounded-xl bg-white/60 border border-blue-100 overflow-hidden group"
-                >
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-br from-blue-700/0 to-blue-700/5 opacity-0 group-hover:opacity-100 transition-opacity"
-                    initial={false}
-                  />
-                  <div className="relative z-10 flex items-start justify-between">
-                    <div>
-                      <p className="text-xs text-gray-600 mb-1">{stat.label}</p>
-                      <p className="text-2xl font-bold text-gray-900">
-                        {stat.value}
-                      </p>
-                      <span className="text-xs text-green-600">
-                        {stat.trend}
-                      </span>
-                    </div>
-                    <stat.icon className="w-8 h-8 text-blue-700/40" />
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-
-            {/* Quick Actions */}
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-600 mb-3">
-                Quick Actions
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                {quickActions.map((action, index) => (
-                  <motion.button
-                    key={action}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.3 + index * 0.05 }}
-                    whileHover={{
-                      scale: 1.05,
-                      backgroundColor: "rgba(29, 78, 216, 0.1)",
-                    }}
-                    whileTap={{ scale: 0.95 }}
-                    className="px-4 py-3 rounded-lg bg-gray-100/80 border border-gray-200 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors"
-                  >
-                    {action}
-                  </motion.button>
-                ))}
-              </div>
-            </div>
-
-            {/* Agent Status */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-transparent border border-blue-200"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                >
-                  <Loader2 className="w-4 h-4 text-blue-700" />
-                </motion.div>
-                <h4 className="text-sm font-semibold text-gray-900">
-                  Agent Status
-                </h4>
-              </div>
-              <p className="text-xs text-gray-600">Ready to execute commands</p>
-              <div className="mt-2 text-xs text-gray-500">
-                Mode: Trading Assistant
-              </div>
-            </motion.div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
-    </>
-  );
-};
-
-// Prompt Input Component
-const PromptInput = ({
-  onSend,
-  wallet,
-}: {
-  onSend: any;
-  wallet: WalletContextState;
-}) => {
-  const [input, setInput] = useState("");
-  const [showActions, setShowActions] = useState(false);
-
-  const handleSend = () => {
-    if (input.trim()) {
-      onSend(input);
-      setInput("");
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ y: 100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ type: "spring", damping: 15, stiffness: 200, delay: 0.4 }}
-      className="sticky bottom-0  backdrop-blur-xl border-t border-gray-200 p-6"
-    >
-      {/* Decorative particles */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {[...Array(5)].map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute w-1 h-1 bg-blue-500 rounded-full"
-            style={{
-              left: `${20 + i * 20}%`,
-              bottom: "20px",
-            }}
-            animate={{
-              y: [0, -30, 0],
-              opacity: [0.2, 0.6, 0.2],
-            }}
-            transition={{
-              duration: 3,
-              repeat: Infinity,
-              delay: i * 0.3,
-            }}
-          />
-        ))}
-      </div>
-
-      <div className="max-w-5xl mx-auto relative">
-        <div className="relative">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            style={{
-              borderRadius: "28px",
-              background:
-                "linear-gradient(135deg, rgba(249, 250, 251, 0.85) 0%, rgba(243, 244, 246, 0.9) 100%)",
-              backdropFilter: "blur(20px) saturate(180%)",
-              WebkitBackdropFilter: "blur(20px) saturate(180%)",
-            }}
-            placeholder="Ask Solana AI to swap, stake, analyze..."
-            className="w-full px-6 py-4 pr-32  border border-gray-300 rounded-2xl text-blue-900 font-semibold placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-700/50 focus:bg-white transition-all resize-none"
-            rows={2}
+        <div className="max-w-3xl mx-auto flex flex-col gap-6 pb-24">
+          {/* Welcome Message styled consistently */}
+          <MessageComponent
+            message="Welcome! I'm your Solana AI Agent. I can help you swap tokens, stake SOL, analyze your portfolio, and execute on-chain actions. What would you like to do?"
+            isUser={false}
           />
 
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            <motion.button
-              onClick={() => setShowActions(!showActions)}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="p-2 rounded-lg bg-gray-200/80 hover:bg-gray-300/80 transition-colors"
-            >
-              <ChevronDown
-                className={`w-4 h-4 text-gray-700 transition-transform ${
-                  showActions ? "rotate-180" : ""
-                }`}
-              />
-            </motion.button>
-
-            <motion.button
-              onClick={handleSend}
-              whileHover={{
-                scale: 1.05,
-                boxShadow: "0 0 15px rgba(29, 78, 216, 0.5)",
-              }}
-              style={{
-                borderRadius: "28px",
-                background:
-                  "linear-gradient(135deg, rgba(49, 158, 216, 0.9) 0%, rgba(30, 58, 138, 0.95) 100%)",
-                backdropFilter: "blur(20px) saturate(180%)",
-                WebkitBackdropFilter: "blur(20px) saturate(180%)",
-              }}
-              whileTap={{ scale: 0.95 }}
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-700 to-blue-800 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl font-semibold transition-all flex items-center gap-2"
-            >
-              <Send className="w-4 h-4" />
-              Send
-            </motion.button>
-          </div>
+          {processedMessages}
         </div>
-
-        {/* Quick Actions Dropdown */}
-        <AnimatePresence>
-          {showActions && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="absolute bottom-full mb-2 left-0 right-0 p-3 bg-white/90 backdrop-blur-md rounded-xl border border-gray-200"
-            >
-              <div className="grid grid-cols-3 gap-2">
-                {["Swap Tokens", "Stake SOL", "Portfolio Analysis"].map(
-                  (action) => (
-                    <motion.button
-                      key={action}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => {
-                        setInput(action);
-                        setShowActions(false);
-                      }}
-                      className="px-4 py-2 bg-gray-100 hover:bg-blue-700 hover:text-white rounded-lg text-sm text-gray-700 transition-colors"
-                    >
-                      {action}
-                    </motion.button>
-                  )
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </motion.div>
   );
@@ -1326,14 +748,6 @@ const Footer = () => {
 
 // Main App Component
 export default function SolanaAIAgentDashboard() {
-  // const [messages, setMessages] = useState([
-  //   {
-  //     role: "agent",
-  //     content:
-  //       "Welcome! I'm your Solana AI Agent. I can help you swap tokens, stake SOL, analyze your portfolio, and execute on-chain actions. What would you like to do?",
-  //   },
-  // ]);
-
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const [agentStatus, setAgentStatus] = useState({
@@ -1345,89 +759,15 @@ export default function SolanaAIAgentDashboard() {
   const {
     resumeStream,
     messages: chat_messages,
+    addToolOutput,
     sendMessage,
     setMessages,
     status,
   } = useChat();
   const wallet = useWallet();
 
+  console.log();
   const handleSendMessage = async (content: string) => {
-    // Add user message
-    // setMessages((prev) => [...prev, { role: "user", content }]);
-    let timeoutId;
-
-    switch (status) {
-      case "ready":
-        setAgentStatus({
-          show: true,
-          message: "Agent Ready...",
-          loading: false,
-        });
-        break;
-
-      case "submitted":
-        setAgentStatus({
-          show: true,
-          message: "Processing your request...",
-          loading: true,
-        });
-        break;
-
-      case "streaming":
-        setAgentStatus({
-          show: true,
-          message: "Generating response...",
-          loading: true,
-        });
-        break;
-
-      case "error":
-        // Show error first
-        setAgentStatus({
-          show: true,
-          message: "An error occurred. Please try again.",
-          loading: false,
-        });
-
-        // Hide after 3 seconds
-        timeoutId = setTimeout(() => {
-          setAgentStatus({
-            show: false,
-            message: "",
-            loading: false,
-          });
-        }, 3000);
-
-        break;
-      default:
-        // Treat unknown as idle
-        setAgentStatus({
-          show: false,
-          message: "",
-          loading: false,
-        });
-        break;
-    }
-
-    // Show agent status
-
-    // Add initial log
-    setTimeout(() => {
-      // addLog("Initializing transaction...", "Connecting to Solana Devnet RPC");
-    }, 500);
-
-    // Add processing log
-    setTimeout(() => {
-      // addLog("Analyzing request parameters", "Parsing: " + content);
-    }, 1500);
-
-    // Add execution log
-    setTimeout(() => {
-      // addLog(
-      //   "Executing on-chain transaction",
-      //   "TX Hash: 5j7k8m9n0p1q2r3s4t5u6v7w8x9y0z"
-      // );
-    }, 2500);
     sendMessage(
       { text: content },
       {
@@ -1443,18 +783,17 @@ export default function SolanaAIAgentDashboard() {
   console.log(chat_messages[0]);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-linear-to-tr  from-gray-50 via-gray-300 to-gray-50">
-      <AnimatedBackground />
+    <div className="h-screen flex flex-col overflow-hidden bg-yellow-50/50">
       <Header />
-
-      <div className="flex-1 flex mt-16 overflow-hidden w-full max-w-[1300px] mx-auto ">
+      <div className="flex-1 flex mt-16 overflow-hidden w-full max-w-[1300px] mx-auto bg-yellow-50/50">
         <Sidebar
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
+          agentStatus={status}
         />
 
         <div
-          className={`flex-1 flex flex-col  transition-all duration-300 ${
+          className={`flex-1 flex flex-col  transition-all duration-300 bg-yellow-50/50 ${
             sidebarOpen ? "ml-20" : "ml-0"
           }`}
         >
