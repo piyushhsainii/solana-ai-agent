@@ -2,7 +2,12 @@
 
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { convertToModelMessages, ModelMessage, streamText } from "ai";
+import {
+  convertToModelMessages,
+  ModelMessage,
+  smoothStream,
+  streamText,
+} from "ai";
 import { systemPrompt } from "./system_prompt";
 import { solanaTools } from "./tools";
 const PROVIDER = process.env.LLM_PROVIDER || "openai"; // "openai" | "gemini"
@@ -30,6 +35,28 @@ export const LLM = (messages: any, walletAddress: string) => {
     system: systemPrompt(walletAddress),
     messages: convertToModelMessages(messages),
     tools: solanaTools,
+    onFinish: async ({
+      dynamicToolCalls,
+      dynamicToolResults,
+      reasoningText,
+      totalUsage,
+      finishReason,
+      text,
+    }) => {
+      console.log("=== Streaming Finished ===");
+      console.log("Dynamic tool calls:", dynamicToolCalls);
+      console.log("Dynamic tool results:", dynamicToolResults);
+      console.log("Reasoning text:", reasoningText);
+      console.log("Total usage:", totalUsage);
+      console.log("Finish reason:", finishReason);
+
+      // You can save to database here
+      // await saveConversation({ messages, toolCalls: dynamicToolCalls, usage: totalUsage });
+    },
+    experimental_transform: smoothStream({
+      delayInMs: 20, // optional: defaults to 10ms
+      chunking: "line", // optional: defaults to 'word'
+    }),
 
     onError: (error) => {
       console.error("Error during streaming:", error);

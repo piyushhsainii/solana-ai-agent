@@ -1,24 +1,9 @@
 "use client";
 import { useState, useRef, useEffect, JSX } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Send,
-  Wallet,
-  Zap,
-  TrendingUp,
-  Activity,
-  ChevronDown,
-  Check,
-  Loader2,
-  RotateCw,
-  Copy,
-  Layers,
-} from "lucide-react";
+import { Zap, Activity, Check, Loader2, RotateCw, Copy } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
 import { UIDataTypes, UIMessage, UITools } from "ai";
-
-// Header Component
-
 import ReactMarkdown from "react-markdown";
 import MessageComponent from "./components/message";
 import { Button } from "@/components/ui/button";
@@ -29,11 +14,12 @@ import CreateDriftAccount from "@/lib/create-drift-account";
 import PromptInput from "@/lib/prompt-input";
 import { Header } from "@/lib/header";
 import Sidebar from "@/lib/sidebar";
+import { TransactionSendSolConfirmCard } from "@/lib/confirm-transaction-send-sol";
+import { SwapQuoteDisplay } from "@/lib/SwapQouteDisplay";
 
 function ChatBubble({
   message,
   isUser,
-  index,
   handleSendMessage,
 }: {
   message: {
@@ -459,6 +445,14 @@ function ChatBubble({
                       {toolName === "create_drift_account_tool" && output && (
                         <CreateDriftAccount toolResult={output} />
                       )}
+                      {toolName === "create_send_transaction" && (
+                        <TransactionSendSolConfirmCard
+                          transactionData={output}
+                        />
+                      )}
+                      {toolName === "get_best_swap_price" && (
+                        <SwapQuoteDisplay data={output} />
+                      )}
                       {/* 3️⃣ Generic fallback for unknown tools */}
                       {![
                         "get_wallet_balance",
@@ -469,6 +463,7 @@ function ChatBubble({
                         "open_perp_trade",
                         "get_drift_balance",
                         "create_drift_account_tool",
+                        "create_send_transaction",
                       ].includes(toolName) && (
                         <div className="prose prose-sm">
                           {/* Simple fallback if not structured */}
@@ -658,6 +653,38 @@ const ChatThread = ({
         handleSendMessage={handleSendMessage}
       />
     );
+    if (message.role === "assistant" && message.id === "agent-log") {
+      elements.push(
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          // transition={{ delay: index * 0.1 }}
+          className="mb-3 px-4"
+        >
+          <div className="max-w-4xl">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 border border-blue-200/50">
+              <Activity className="w-4 h-4 text-blue-700 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-mono font-semibold text-blue-700">
+                    AGENT LOG
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {/* {message.timestamp || new Date().toLocaleTimeString()} */}
+                  </span>
+                </div>
+                <p className="text-sm font-mono text-gray-700 leading-relaxed">
+                  {message.parts
+                    .filter((data) => data.type == "text")
+                    .map((dataa) => dataa.text)
+                    .join()}
+                </p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      );
+    }
     return elements;
   });
 
@@ -765,7 +792,6 @@ export default function SolanaAIAgentDashboard() {
     status,
   } = useChat();
   const wallet = useWallet();
-
   console.log();
   const handleSendMessage = async (content: string) => {
     sendMessage(
@@ -780,8 +806,7 @@ export default function SolanaAIAgentDashboard() {
       }
     );
   };
-  console.log(chat_messages[0]);
-
+  console.log(chat_messages);
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-yellow-50/50">
       <Header />
@@ -801,7 +826,11 @@ export default function SolanaAIAgentDashboard() {
             chat_messages={chat_messages}
             handleSendMessage={handleSendMessage}
           />
-          <PromptInput onSend={handleSendMessage} wallet={wallet} />
+          <PromptInput
+            onSend={handleSendMessage}
+            wallet={wallet}
+            status={status}
+          />
         </div>
       </div>
 

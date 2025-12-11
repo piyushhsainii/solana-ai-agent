@@ -13,9 +13,10 @@ import {
   RotateCw,
   Copy,
   Layers,
+  Pause,
 } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
-import { UIDataTypes, UIMessage, UITools } from "ai";
+import { ChatStatus, UIDataTypes, UIMessage, UITools } from "ai";
 import { WalletContextState } from "@solana/wallet-adapter-react";
 
 const quickActions = [
@@ -28,9 +29,11 @@ const quickActions = [
 const PromptInput = ({
   onSend,
   wallet,
+  status,
 }: {
   onSend: any;
   wallet: WalletContextState;
+  status: ChatStatus;
 }) => {
   const [input, setInput] = useState("");
   const [showActions, setShowActions] = useState(false);
@@ -54,7 +57,7 @@ const PromptInput = ({
       initial={{ y: 100, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ type: "spring", damping: 20, stiffness: 100 }}
-      className="sticky bottom-0 w-full z-50 bg-yellow-50 border-t-4 border-black p-4 md:p-6"
+      className="sticky bottom-0 w-full z-20 bg-yellow-50 border-t-4 border-black p-4 md:p-6"
     >
       <div className="max-w-3xl mx-auto relative">
         {/* Quick Actions Dropdown */}
@@ -139,7 +142,7 @@ const PromptInput = ({
               {/* Send Button */}
               <motion.button
                 onClick={handleSend}
-                disabled={!input.trim()}
+                disabled={!input.trim() || status == "streaming"}
                 whileHover={{
                   x: -2,
                   y: -2,
@@ -160,7 +163,11 @@ const PromptInput = ({
                 `}
               >
                 <span>Send</span>
-                <Send className="w-4 h-4" strokeWidth={3} />
+                {status == "streaming" ? (
+                  <Pause className="w-4 h-4" strokeWidth={3} />
+                ) : (
+                  <Send className="w-4 h-4" strokeWidth={3} />
+                )}
               </motion.button>
             </div>
           </div>

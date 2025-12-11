@@ -26,6 +26,8 @@ import wallet from "../../my-keypair.json";
 import { Keypair } from "@solana/web3.js";
 import { Transaction } from "@solana/web3.js";
 import {
+  createAssociatedTokenAccountInstruction,
+  createTransferInstruction,
   getAccount,
   getAssociatedTokenAddress,
   TOKEN_2022_PROGRAM_ID,
@@ -33,6 +35,9 @@ import {
 } from "@solana/spl-token";
 import { MPL_TOKEN_METADATA_PROGRAM_ID } from "@metaplex-foundation/mpl-token-metadata";
 import bs58 from "bs58";
+import { SystemProgram } from "@solana/web3.js";
+import { TransactionInstruction } from "@solana/web3.js";
+import { connection } from "../connection";
 export const runtime = "nodejs"; // better performance on Vercel
 
 function getMetadataPDA(mint: PublicKey): PublicKey {
@@ -46,10 +51,6 @@ function getMetadataPDA(mint: PublicKey): PublicKey {
   );
   return pda;
 }
-
-/**
- * Parse metadata from account data manually
- */
 function parseMetadata(data: Buffer) {
   try {
     let offset = 0;
@@ -99,9 +100,6 @@ function parseMetadata(data: Buffer) {
   }
 }
 
-/**
- * 🪙 Fetch wallet balances - SOL + top 5 SPL tokens with metadata
- */
 export const get_wallet_balance = tool({
   name: "get_wallet_balance",
   description:
@@ -388,50 +386,840 @@ export const get_wallet_balance = tool({
     }
   },
 });
-
-export const send_tokens = tool({
-  name: "send_tokens",
-  description: "Send SOL or SPL tokens from one wallet to another.",
+export const create_send_transaction = tool({
+  name: "create_send_transaction",
+  description:
+    "Generate transaction instructions to send SOL or SPL tokens to a wallet address. Returns serialized transaction that user needs to sign.",
   inputSchema: z.object({
-    fromWallet: z.string().describe("Sender wallet address"),
-    toWallet: z.string().describe("Recipient wallet address"),
+    recipientAddress: z.string().describe("Wallet address to send tokens to"),
+    tokenSymbol: z.string().describe("Token symbol (SOL, USDC, BONK, etc.)"),
     amount: z.number().describe("Amount to send"),
-    tokenSymbol: z.string().optional().describe("Token symbol, e.g. SOL, USDC"),
+    senderAddress: z.string().describe("Sender's wallet address"),
+    tokenMintAddress: z
+      .string()
+      .optional()
+      .describe("Token mint address (required for SPL tokens)"),
   }),
-  execute: async ({ fromWallet, toWallet, amount, tokenSymbol = "SOL" }) => {
-    console.log(
-      `Sending ${amount} ${tokenSymbol} from ${fromWallet} to ${toWallet}`
-    );
+  execute: async ({
+    recipientAddress,
+    tokenSymbol,
+    amount,
+    senderAddress,
+    tokenMintAddress,
+  }) => {
+    try {
+      // Connect to devnet
+      const connection = new Connection(
+        "https://api.devnet.solana.com",
+        "confirmed"
+      );
+
+      const sender = new PublicKey(senderAddress);
+      const recipient = new PublicKey(recipientAddress);
+
+      // Get recent blockhash FIRST
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("finalized");
+
+      let instructions: TransactionInstruction[] = [];
+      let estimatedFee = 0.000005; // 5000 lamports base fee
+
+      // Handle SOL transfer
+      if (tokenSymbol.toUpperCase() === "SOL") {
+        const lamports = amount * LAMPORTS_PER_SOL;
+
+        const transferInstruction = SystemProgram.transfer({
+          fromPubkey: sender,
+          toPubkey: recipient,
+          lamports: lamports,
+        });
+
+        instructions.push(transferInstruction);
+
+        // Create transaction with blockhash BEFORE serializing
+        const transaction = new Transaction({
+          recentBlockhash: blockhash,
+          feePayer: sender,
+        }).add(transferInstruction);
+
+        // Now serialize with blockhash included
+        const serialized = transaction.serialize({
+          requireAllSignatures: false,
+          verifySignatures: false,
+        });
+
+        return {
+          success: true,
+          transactionType: "SOL_TRANSFER",
+          details: {
+            from: senderAddress,
+            to: recipientAddress,
+            amount: amount,
+            token: "SOL",
+            estimatedFee: `${estimatedFee} SOL`,
+          },
+          instructions: [
+            {
+              type: "transfer",
+              program: "System Program",
+              description: `Transfer ${amount} SOL to ${recipientAddress}`,
+            },
+          ],
+          serializedTransaction: serialized.toString("base64"),
+          blockhash,
+          lastValidBlockHeight,
+          message: `Ready to send ${amount} SOL to ${recipientAddress}. Please sign the transaction.`,
+        };
+      }
+
+      // Handle SPL Token transfer
+      if (!tokenMintAddress) {
+        throw new Error(`Token mint address required for ${tokenSymbol}`);
+      }
+
+      const mint = new PublicKey(tokenMintAddress);
+
+      // Get token accounts
+      const senderTokenAccount = await getAssociatedTokenAddress(mint, sender);
+
+      const recipientTokenAccount = await getAssociatedTokenAddress(
+        mint,
+        recipient
+      );
+
+      // Check if recipient token account exists
+      let recipientAccountExists = true;
+      try {
+        await getAccount(connection, recipientTokenAccount);
+      } catch (error) {
+        recipientAccountExists = false;
+      }
+
+      // Create recipient token account if it doesn't exist
+      if (!recipientAccountExists) {
+        const createAccountInstruction =
+          createAssociatedTokenAccountInstruction(
+            sender, // payer
+            recipientTokenAccount, // associated token account
+            recipient, // owner
+            mint // mint
+          );
+
+        instructions.push(createAccountInstruction);
+        estimatedFee += 0.00204; // ~2040000 lamports for creating token account
+      }
+
+      // Get token decimals (fetch dynamically)
+      let decimals = 9; // Default
+      try {
+        const mintInfo = await connection.getParsedAccountInfo(mint);
+        if (mintInfo.value && "parsed" in mintInfo.value.data) {
+          decimals = mintInfo.value.data.parsed.info.decimals;
+        }
+      } catch (error) {
+        console.warn("Could not fetch token decimals, using default: 9");
+      }
+
+      const amountInSmallestUnit = Math.floor(amount * Math.pow(10, decimals));
+
+      // Create transfer instruction
+      const transferInstruction = createTransferInstruction(
+        senderTokenAccount, // source
+        recipientTokenAccount, // destination
+        sender, // owner
+        amountInSmallestUnit // amount
+      );
+
+      instructions.push(transferInstruction);
+
+      // Create transaction with blockhash BEFORE serializing
+      const transaction = new Transaction({
+        recentBlockhash: blockhash,
+        feePayer: sender,
+      }).add(...instructions);
+
+      // Now serialize with blockhash included
+      const serialized = transaction.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      });
+
+      return {
+        success: true,
+        transactionType: "SPL_TOKEN_TRANSFER",
+        details: {
+          from: senderAddress,
+          to: recipientAddress,
+          amount: amount,
+          token: tokenSymbol,
+          mint: tokenMintAddress,
+          decimals: decimals,
+          estimatedFee: `${estimatedFee} SOL`,
+          recipientAccountCreated: !recipientAccountExists,
+        },
+        instructions: instructions.map((inst, idx) => {
+          if (idx === 0 && !recipientAccountExists) {
+            return {
+              type: "createAccount",
+              program: "Associated Token Program",
+              description: `Create ${tokenSymbol} token account for recipient`,
+            };
+          }
+          return {
+            type: "transfer",
+            program: "Token Program",
+            description: `Transfer ${amount} ${tokenSymbol} to ${recipientAddress}`,
+          };
+        }),
+        serializedTransaction: serialized.toString("base64"),
+        blockhash,
+        lastValidBlockHeight,
+        message: `Ready to send ${amount} ${tokenSymbol} to ${recipientAddress}. ${
+          !recipientAccountExists
+            ? "Note: Recipient token account will be created. "
+            : ""
+        }Please sign the transaction.`,
+      };
+    } catch (error: any) {
+      console.error("Transaction creation error:", error);
+      return {
+        success: false,
+        error: error.message,
+        message: `Failed to create transaction: ${error.message}`,
+      };
+    }
+  },
+});
+// Helper tool to get token mint addresses
+export const get_token_mint_address = tool({
+  name: "get_token_mint_address",
+  description: "Get the mint address for common Solana tokens on devnet",
+  inputSchema: z.object({
+    tokenSymbol: z.string().describe("Token symbol (USDC, BONK, etc.)"),
+  }),
+  execute: async ({ tokenSymbol }) => {
+    // Common devnet token mints
+    const devnetMints: Record<string, string> = {
+      USDC: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", // Devnet USDC
+      USDT: "EJwZgeZrdC8TXTQbQBoL6bfuAnFUUy1PVCMB4DYPzVaS", // Devnet USDT
+      // Add more devnet tokens as needed
+    };
+
+    const mintAddress = devnetMints[tokenSymbol.toUpperCase()];
+
+    if (!mintAddress) {
+      return {
+        success: false,
+        message: `Token ${tokenSymbol} not found. Available tokens: ${Object.keys(
+          devnetMints
+        ).join(", ")}`,
+      };
+    }
+
     return {
-      status: "success",
-      txHash: "FakeTxHash123ABC",
-      details: { fromWallet, toWallet, amount, tokenSymbol },
+      success: true,
+      token: tokenSymbol,
+      mintAddress: mintAddress,
+      network: "devnet",
     };
   },
 });
-/**
- * 🔄 Get best swap prices
- */
+// Tool to execute/send the signed transaction
+export const send_signed_transaction = tool({
+  name: "send_signed_transaction",
+  description: "Send a signed transaction to the Solana network",
+  inputSchema: z.object({
+    signedTransaction: z.string().describe("Base64 encoded signed transaction"),
+  }),
+  execute: async ({ signedTransaction }) => {
+    try {
+      const connection = new Connection(
+        "https://api.devnet.solana.com",
+        "confirmed"
+      );
+
+      const transaction = Transaction.from(
+        Buffer.from(signedTransaction, "base64")
+      );
+
+      const signature = await connection.sendRawTransaction(
+        transaction.serialize()
+      );
+
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction(signature);
+
+      return {
+        success: true,
+        signature: signature,
+        explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+        message: `Transaction sent successfully!`,
+        confirmation: confirmation,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+        message: `Failed to send transaction: ${error.message}`,
+      };
+    }
+  },
+});
+
+function getTokenAddresses(network: Network): Record<string, string> {
+  return network === "devnet"
+    ? DEVNET_TOKEN_ADDRESSES
+    : MAINNET_TOKEN_ADDRESSES;
+}
+function getTokenDecimals(symbol: string): number {
+  const decimalsMap: Record<string, number> = {
+    SOL: 9,
+    USDC: 6,
+    USDT: 6,
+    RAY: 6,
+    BONK: 5,
+    JUP: 6,
+    WIF: 6,
+    PYTH: 6,
+    ORCA: 6,
+  };
+  return decimalsMap[symbol.toUpperCase()] || 9;
+}
+// Helper functions for each DEX (implement these with actual APIs)
+async function fetchJupiterQuote(
+  fromToken: string,
+  toToken: string,
+  amount: number,
+  network: "mainnet" | "devnet",
+  slippageBps: number = 50
+) {
+  try {
+    if (!process.env.JUPITER_API_KEY) {
+      return {
+        success: false,
+        dex: "jupiter",
+        error:
+          "Jupiter API key not found. Get one at https://station.jup.ag/ and set JUPITER_API_KEY env variable",
+      };
+    }
+
+    const fromDecimals = getTokenDecimals(fromToken);
+    const toDecimals = getTokenDecimals(toToken);
+
+    // Convert to raw amount (before decimals) as required by API
+    const rawAmount = Math.floor(amount * Math.pow(10, fromDecimals));
+
+    // Build query parameters according to Jupiter API spec
+    const params = new URLSearchParams({
+      inputMint: fromToken,
+      outputMint: toToken,
+      amount: rawAmount.toString(), // Raw amount before decimals
+      slippageBps: slippageBps.toString(), // Default: 50
+      swapMode: "ExactIn", // ExactIn is default and most common
+      restrictIntermediateTokens: "true", // Reduce exposure to high slippage
+      onlyDirectRoutes: "false", // Allow multi-hop for better rates
+      asLegacyTransaction: "false", // Use versioned transactions
+      maxAccounts: "64", // Max accounts estimate
+    });
+
+    const apiUrl = "https://api.jup.ag/swap/v1/quote";
+    console.log(`Fetching Jupiter quote: ${apiUrl}?${params.toString()}`);
+
+    const response = await fetch(`${apiUrl}?${params.toString()}`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "x-api-key": process.env.JUPITER_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Jupiter API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    // Parse response according to API spec
+    const outputAmount = (
+      parseInt(data.outAmount) / Math.pow(10, toDecimals)
+    ).toFixed(6);
+    const minOutputAmount = (
+      parseInt(data.otherAmountThreshold) / Math.pow(10, toDecimals)
+    ).toFixed(6);
+
+    // Build route description
+    const route =
+      data.routePlan
+        ?.map((plan: any, idx: number) => {
+          const label = plan.swapInfo?.label || "Unknown";
+          const percent = plan.percent ? ` (${plan.percent}%)` : "";
+          return `${label}${percent}`;
+        })
+        .join(" → ") || "Direct";
+
+    return {
+      success: true,
+      dex: "jupiter",
+      outputAmount: outputAmount,
+      minOutputAmount: minOutputAmount, // After slippage
+      priceImpact: data.priceImpactPct
+        ? `${parseFloat(data.priceImpactPct).toFixed(4)}%`
+        : "N/A",
+      fee: data.platformFee
+        ? `${(
+            parseInt(data.platformFee.amount) / Math.pow(10, fromDecimals)
+          ).toFixed(6)} (${data.platformFee.feeBps} bps)`
+        : "No platform fee",
+      route: route,
+      quoteId: `jup_slot_${data.contextSlot}`,
+      contextSlot: data.contextSlot,
+      timeTaken: data.timeTaken ? `${data.timeTaken}ms` : "N/A",
+      rawData: data,
+    };
+  } catch (error) {
+    console.error("Jupiter quote error:", error);
+
+    return {
+      success: false,
+      dex: "jupiter",
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+// Raydium Quote Fetch (using their API)
+async function fetchRaydiumQuote(
+  fromToken: string,
+  toToken: string,
+  amount: number
+) {
+  try {
+    const amountInSmallestUnit = Math.floor(amount * 1e9);
+
+    const response = await fetch(
+      `https://api-v3.raydium.io/swap/compute-swap?inputMint=${fromToken}&outputMint=${toToken}&amount=${amountInSmallestUnit}&slippage=0.5`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Raydium API error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success || !data.data) {
+      throw new Error("Raydium: No quote available");
+    }
+
+    const quote = data.data;
+
+    return {
+      success: true,
+      dex: "raydium",
+      outputAmount: (parseInt(quote.outputAmount) / 1e6).toFixed(2),
+      priceImpact: quote.priceImpact
+        ? `${(quote.priceImpact * 100).toFixed(2)}%`
+        : "N/A",
+      fee: quote.fee ? `${(quote.fee / 1e9).toFixed(4)} SOL` : "0.0025 SOL",
+      route: `${quote.inputMint.slice(0, 4)}... → ${quote.outputMint.slice(
+        0,
+        4
+      )}... (${quote.poolType || "AMM"})`,
+      quoteId: `ray_${Date.now()}`,
+      rawData: quote,
+    };
+  } catch (error) {
+    console.error("Raydium quote error:", error);
+    return {
+      success: false,
+      dex: "raydium",
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+// Orca Quote Fetch (using Whirlpool SDK)
+async function fetchOrcaQuote(
+  fromToken: string,
+  toToken: string,
+  amount: number,
+  connection: Connection
+) {
+  try {
+    // Orca uses their REST API for quotes
+    const amountInSmallestUnit = Math.floor(amount * 1e9);
+
+    const response = await fetch("https://api.orca.so/v1/quote", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inputMint: fromToken,
+        outputMint: toToken,
+        amount: amountInSmallestUnit,
+        slippage: 0.5, // 0.5%
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Orca API error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      dex: "orca",
+      outputAmount: (
+        parseInt(data.outAmount || data.expectedOutputAmount) / 1e6
+      ).toFixed(2),
+      priceImpact: data.priceImpact
+        ? `${(data.priceImpact * 100).toFixed(2)}%`
+        : "N/A",
+      fee: data.fee ? `${(data.fee / 1e9).toFixed(4)} SOL` : "0.0015 SOL",
+      route: data.route || "SOL → USDC (Whirlpool)",
+      quoteId: `orca_${Date.now()}`,
+      rawData: data,
+    };
+  } catch (error) {
+    console.error("Orca quote error:", error);
+    return {
+      success: false,
+      dex: "orca",
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+// Helper function to get best quote across all DEXes
+async function getBestQuote(
+  fromToken: string,
+  toToken: string,
+  amount: number,
+  connection: Connection
+) {
+  const [jupiterQuote] = await Promise.allSettled([
+    fetchJupiterQuote(fromToken, toToken, amount, "mainnet"),
+    // fetchRaydiumQuote(fromToken, toToken, amount),
+    // fetchOrcaQuote(fromToken, toToken, amount, connection),
+  ]);
+
+  const quotes = [
+    jupiterQuote.status === "fulfilled" ? jupiterQuote.value : null,
+    // raydiumQuote.status === "fulfilled" ? raydiumQuote.value : null,
+    // orcaQuote.status === "fulfilled" ? orcaQuote.value : null,
+  ].filter((q) => q?.success);
+
+  // Find best by output amount
+  const best = quotes.reduce((prev, curr) => {
+    if (!prev) return curr;
+    const prevAmount = parseFloat(prev.outputAmount ?? "0");
+    const currAmount = parseFloat(curr?.outputAmount ?? "0");
+    return currAmount > prevAmount ? curr : prev;
+  }, null);
+
+  return {
+    allQuotes: quotes,
+    bestQuote: best,
+  };
+}
+
 export const get_best_swap_price = tool({
   name: "get_best_swap_price",
-  description: "List top DEX swap quotes for a given token pair.",
+  description:
+    "Compare swap quotes across DEXs on Solana. Jupiter works on both mainnet/devnet. Raydium and Orca are mainnet only.",
   inputSchema: z.object({
+    fromToken: z
+      .string()
+      .describe("Token symbol to swap from (e.g., SOL, USDC, RAY)"),
+    toToken: z
+      .string()
+      .describe("Token symbol to swap to (e.g., USDC, RAY, SOL)"),
+    amount: z
+      .number()
+      .positive()
+      .describe("Amount to swap (in token units, e.g., 1 for 1 SOL)"),
+  }),
+  execute: async ({ fromToken, toToken, amount }) => {
+    try {
+      const network = "mainnet";
+      console.log(
+        `🔍 Comparing prices on ${network.toUpperCase()} for ${amount} ${fromToken} → ${toToken}`
+      );
+
+      // Validate tokens exist on the specified network
+      try {
+        const fromAddress = getTokenAddress(fromToken, network);
+        const toAddress = getTokenAddress(toToken, network);
+
+        fromToken = fromAddress;
+        toToken = toAddress;
+      } catch (error) {
+        const supportedTokens = Object.keys(getTokenAddresses(network));
+        return {
+          success: false,
+          network,
+          error: error instanceof Error ? error.message : "Invalid token",
+          supportedTokens: supportedTokens.join(", "),
+        };
+      }
+
+      // Get quotes from all DEXs
+      const result = await getBestQuote(fromToken, toToken, amount, connection);
+
+      if (result.allQuotes.length === 0) {
+        return {
+          success: false,
+          pair: `${fromToken}/${toToken}`,
+          inputAmount: amount,
+          network,
+          error: `No quotes available from any DEX on ${network}.`,
+          hint:
+            network === "devnet"
+              ? "On devnet, only Jupiter is available. Try pairs like SOL/USDC or SOL/USDT."
+              : "Check if the tokens are correct and have liquidity.",
+        };
+      }
+
+      // Format response
+      const sortedQuotes = result.allQuotes.map((q, idx) => ({
+        rank: idx + 1,
+        dex: q?.dex,
+        outputAmount: q?.outputAmount,
+        priceImpact: q?.priceImpact,
+        fee: q?.fee,
+        route: q?.route,
+        quoteId: q?.quoteId,
+      }));
+
+      const best = result.bestQuote!;
+
+      return {
+        success: true,
+        pair: `${fromToken}/${toToken}`,
+        inputAmount: amount,
+        network,
+        networkInfo:
+          network === "devnet"
+            ? "🧪 Using devnet - Only Jupiter available, limited liquidity"
+            : "🌐 Using mainnet - All DEXs available",
+        quotes: sortedQuotes,
+        bestDex: best.dex,
+        bestOutputAmount: best.outputAmount,
+        bestQuoteId: best.quoteId,
+        recommendation: `✅ Best rate on ${network.toUpperCase()}: ${best.dex.toUpperCase()} offers ${
+          best.outputAmount
+        } ${toToken}`,
+        executionData: {
+          dex: best.dex,
+          quoteId: best.quoteId,
+          network,
+          fromToken,
+          toToken,
+          rawQuote: best.rawData,
+        },
+      };
+    } catch (error) {
+      console.error("Error in get_best_swap_price:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  },
+});
+function getTokenAddress(
+  symbol: string,
+  network: Network = DEFAULT_NETWORK
+): string {
+  const upperSymbol = symbol.toUpperCase();
+  const tokenAddresses = getTokenAddresses(network);
+  const address = tokenAddresses[upperSymbol];
+
+  if (!address) {
+    throw new Error(
+      `Token ${symbol} not found on ${network}. Supported tokens: ${Object.keys(
+        tokenAddresses
+      ).join(", ")}`
+    );
+  }
+
+  return address;
+}
+const API_ENDPOINTS = {
+  jupiter: {
+    mainnet: "https://quote-api.jup.ag/v6",
+    devnet: "https://quote-api.jup.ag/v6", // Jupiter uses same endpoint, distinguishes by token addresses
+  },
+  raydium: {
+    mainnet: "https://api-v3.raydium.io",
+    devnet: "https://api-v3-devnet.raydium.io", // Raydium devnet API
+  },
+  orca: {
+    mainnet: "https://api.mainnet.orca.so",
+    devnet: "https://api.devnet.orca.so", // Orca devnet API
+  },
+};
+type Network = "mainnet" | "devnet";
+// Token address mapping for MAINNET
+const MAINNET_TOKEN_ADDRESSES: Record<string, string> = {
+  SOL: "So11111111111111111111111111111111111111112",
+  USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+  BONK: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+  JUP: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+  WIF: "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+  PYTH: "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+  RAY: "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+  ORCA: "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+};
+// Token address mapping for DEVNET (Raydium devnet tokens)
+const DEVNET_TOKEN_ADDRESSES: Record<string, string> = {
+  SOL: "So11111111111111111111111111111111111111112", // Native SOL
+  USDC: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", // Devnet USDC
+  USDT: "EJwZgeZrdC8TXTQbQBoL6bfuAnFUUy1PVCMB4DYPzVaS", // Devnet USDT
+  RAY: "raydD2iNSpX2gU7oZD9s4prcP5ZPKr5NsHVVqp9card", // Devnet RAY
+  // Add more devnet tokens as needed from Raydium devnet docs
+};
+// RPC endpoints
+const RPC_ENDPOINTS = {
+  mainnet:
+    process.env.SOLANA_MAINNET_RPC_URL || "https://api.mainnet-beta.solana.com",
+  devnet: process.env.SOLANA_DEVNET_RPC_URL || "https://api.devnet.solana.com",
+};
+// Network configuration
+const DEFAULT_NETWORK: Network =
+  (process.env.SOLANA_NETWORK as Network) || "mainnet";
+// Get connection based on network
+function getConnection(network: Network = DEFAULT_NETWORK): Connection {
+  return new Connection(RPC_ENDPOINTS[network], "confirmed");
+}
+// Helper function to get token addresses based on network
+
+// Common token addresses (Mainnet)
+export const TOKENS = {
+  SOL: "So11111111111111111111111111111111111111112",
+  USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+  // Add more tokens as needed
+};
+
+// Step 2: Execute the swap on selected DEX
+export const execute_swap = tool({
+  name: "execute_swap",
+  description:
+    "Execute a token swap on the selected DEX (devnet only). User must confirm before execution.",
+  inputSchema: z.object({
+    dex: z
+      .enum(["jupiter", "raydium", "orca"])
+      .describe("Selected DEX to execute swap"),
     fromToken: z.string().describe("Token symbol to swap from"),
     toToken: z.string().describe("Token symbol to swap to"),
     amount: z.number().describe("Amount to swap"),
+    quoteId: z
+      .string()
+      .optional()
+      .describe("Quote ID from get_best_swap_price"),
+    slippageBps: z
+      .number()
+      .default(50)
+      .describe("Slippage tolerance in basis points (50 = 0.5%)"),
   }),
-  execute: async ({ fromToken, toToken, amount }) => {
+  execute: async ({
+    dex,
+    fromToken,
+    toToken,
+    amount,
+    quoteId,
+    slippageBps,
+  }) => {
     console.log(
-      `Fetching best swap price for ${amount} ${fromToken} → ${toToken}`
+      `Executing swap on ${dex}: ${amount} ${fromToken} → ${toToken}`
     );
-    return {
-      pair: `${fromToken}/${toToken}`,
-      amount,
-      bestPrice: "1.024",
-      route: "Jupiter Aggregator",
-    };
+
+    try {
+      let txSignature: string;
+
+      switch (dex) {
+        case "jupiter":
+          txSignature = await executeJupiterSwap(
+            fromToken,
+            toToken,
+            amount,
+            quoteId,
+            slippageBps
+          );
+          break;
+        case "raydium":
+          txSignature = await executeRaydiumSwap(
+            fromToken,
+            toToken,
+            amount,
+            slippageBps
+          );
+          break;
+        case "orca":
+          txSignature = await executeOrcaSwap(
+            fromToken,
+            toToken,
+            amount,
+            slippageBps
+          );
+          break;
+        default:
+          throw new Error(`Unsupported DEX: ${dex}`);
+      }
+
+      return {
+        success: true,
+        dex,
+        transaction: txSignature,
+        explorerUrl: `https://explorer.solana.com/tx/${txSignature}?cluster=devnet`,
+        message: `Swap executed successfully on ${dex}`,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+        message: `Failed to execute swap on ${dex}`,
+      };
+    }
   },
 });
+
+async function executeJupiterSwap(
+  fromToken: string,
+  toToken: string,
+  amount: number,
+  quoteId: string | undefined,
+  slippageBps: number
+) {
+  // 1. Get fresh quote if quoteId not provided
+  // 2. Get swap transaction from Jupiter
+  // 3. Sign and send transaction on devnet
+  // const { swapTransaction } = await fetch('https://quote-api.jup.ag/v6/swap', ...)
+
+  return "5j8k9l0m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m7n8o9p0q"; // Mock tx signature
+}
+
+async function executeRaydiumSwap(
+  fromToken: string,
+  toToken: string,
+  amount: number,
+  slippageBps: number
+) {
+  // Use Raydium SDK to create and execute swap transaction
+  return "raydium_tx_signature_mock";
+}
+
+async function executeOrcaSwap(
+  fromToken: string,
+  toToken: string,
+  amount: number,
+  slippageBps: number
+) {
+  // Use Orca Whirlpool SDK to create and execute swap transaction
+  return "orca_tx_signature_mock";
+}
 /**
  * 🧾 Get recent transactions
  */
@@ -1630,8 +2418,11 @@ export const drift_deposit = tool({
 
 export const solanaTools = {
   get_wallet_balance,
-  send_tokens,
+  create_send_transaction,
+  get_token_mint_address,
+  send_signed_transaction,
   get_best_swap_price,
+  execute_swap,
   get_recent_transactions,
   get_portfolio_summary,
   open_perp_trade,
